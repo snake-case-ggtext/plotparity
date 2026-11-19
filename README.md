@@ -50,7 +50,7 @@ Cases plotparity can't measure yet (such as `<img>`) are compared by eye. **OK**
 | `--compare RUN` / `--no-compare` | mark findings new/fixed against a run (default: the last run of the same package and cases) |
 | `--no-render-r` | fail instead of rendering missing R references (for CI without R) |
 
-`plotparity view` reopens the latest report; `plotparity view RUN RUN` shows several runs side by side. `plotparity init` saves your defaults to a `parity.toml`.
+`plotparity view` reopens the latest report; `plotparity view RUN RUN` shows several runs side by side; `plotparity view --public --out site/report.html` writes a copy to publish, with paths under your home directory shown as `~`. `plotparity init` saves your defaults to a `parity.toml`.
 
 ## Reading the results
 
@@ -129,6 +129,8 @@ Not checked yet:
 Two adapters ship today: **ggtext** (rich-text labels and theme elements) and **ggridges** (ridgeline plots: each ridge's shape, density, fill, outline, pieces and which ridge is drawn on top). Supporting another extension means writing an adapter (what counts as a component, how to find components on both sides, how to pair them, which checks apply): see [docs/writing-adapters.md](docs/writing-adapters.md).
 
 ## Example
+
+**[See example reports](https://snake-case-ggtext.github.io/plotparity-examples/)** for three packages.
 
 [plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) has cases for ggtext and ggridges, and three packages tested against them: one that matches R and two with real gaps:
 

@@ -14,7 +14,7 @@ Worked example and the ggtext benchmark: [plotparity-examples](https://github.co
 
 ## State
 
-- **Commands:** `run`, `view`, `init`, `new-case`, `references`, `validate`, `selftest` and `loop` all work. A bare `plotparity run` inside a package repo with `./parity/` needs no config.
+- **Commands:** `run`, `view` (`--public` for a publishable copy), `init`, `new-case`, `references`, `validate`, `selftest` and `loop` all work. A bare `plotparity run` inside a package repo with `./parity/` needs no config.
 - **Two adapters:**
   - **ggtext:** `geom_richtext`, `geom_textbox`, and the theme elements `element_markdown` / `element_textbox`;
   - **ggridges:** `geom_density_ridges` (incl. binline, quantile lines), `geom_ridgeline`. No known-good package, so it isn't in `selftest`; `tests/test_ggridges.py` covers its checks on synthetic observations.

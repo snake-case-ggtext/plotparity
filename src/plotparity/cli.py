@@ -69,9 +69,9 @@ def _point_latest(runs_dir: Path, run_dir: Path) -> None:
         pass
 
 
-def _build_html(run_dirs: list[Path], out: Path) -> Path:
+def _build_html(run_dirs: list[Path], out: Path, public: bool = False) -> Path:
     from .view.build import build
-    return build([d / "report.json" for d in run_dirs], out)
+    return build([d / "report.json" for d in run_dirs], out, public=public)
 
 
 # ───────────────────────── commands ─────────────────────────
@@ -139,7 +139,7 @@ def cmd_view(a) -> int:
         if not (d / "report.json").exists():
             raise UsageError(f"{d} has no report.json")
     out = Path(a.out).resolve() if a.out else (run_dirs[0] / ("report.html" if len(run_dirs) == 1 else "compare.html"))
-    html = _build_html(run_dirs, out)
+    html = _build_html(run_dirs, out, public=a.public)
     print(html)
     if not a.no_open:
         webbrowser.open(html.as_uri())
@@ -265,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("runs", nargs="*", metavar="RUN", help="run directories or report.json files (default: the latest run)")
     p.add_argument("--out", metavar="FILE", help="where to write the HTML (default: inside the first run)")
     p.add_argument("--no-open", action="store_true", help="write the HTML without opening it")
+    p.add_argument("--public", action="store_true", help="write local paths under your home directory as ~ (for publishing)")
     p.add_argument("--config", metavar="FILE", help=argparse.SUPPRESS)
     p.set_defaults(fn=cmd_view)
 

@@ -285,7 +285,7 @@ Each finding has a fingerprint, `case|check|ref_component`. When compared with a
 
 If the harness hash differs from the previous report's, the report says so and names the changed parts.
 
-**`report.html`**, for people: side by side, blink, swipe and difference views with findings outlined; a Settings panel with every check's severity, tolerance, failure count and calibration, plus the known differences; and OK marks kept in the browser, tied to each render's pixels.
+**`report.html`**, for people: side by side, blink, swipe and difference views with findings outlined; a Settings panel with every check's severity, tolerance, failure count and calibration, plus the known differences; and OK marks kept in the browser, tied to each render's pixels. The report embeds local paths (sources, environments, tracebacks); `view --public` writes those under the home directory as `~` for publishing.
 
 **`report.md`**, for agents:
 - status

@@ -120,7 +120,9 @@ def _settings(rep: dict, project) -> dict:
     return {"checks": checks, "known": known, "files": files}
 
 
-def build(report_files: list[Path], out: Path) -> Path:
+def build(report_files: list[Path], out: Path, public: bool = False) -> Path:
+    """Self-contained HTML for one or more runs. `public`: write paths under the home directory as `~` (for
+    publishing a report without the local user name)."""
     from ..project import Project
 
     runs, images, sizes, case_meta = [], {}, {}, {}
@@ -162,7 +164,11 @@ def build(report_files: list[Path], out: Path) -> Path:
                      "report_path": str(rf)})
     data = {"runs": runs, "cases": case_meta, "sizes": sizes}
     html = TEMPLATE.read_text()
-    html = html.replace("/*__DATA__*/null", json.dumps(data, default=str).replace("</", "<\\/"))
+    blob = json.dumps(data, default=str)
+    if public:
+        home = str(Path.home())
+        blob = blob.replace(json.dumps(home)[1:-1], "~")
+    html = html.replace("/*__DATA__*/null", blob.replace("</", "<\\/"))
     html = html.replace("/*__IMAGES__*/null", json.dumps(images))
     out.write_text(html)
     return out
