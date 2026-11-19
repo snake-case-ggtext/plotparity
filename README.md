@@ -104,7 +104,7 @@ ggplot(df, aes("x", "y", label="label")) + geom_richtext(hjust=0) + xlim(0, 1) +
 
 Point the agent at [skills/plotparity/SKILL.md](skills/plotparity/SKILL.md). It covers the run–fix loop, how to read findings, and the rules (edit only the package; never the cases, references, tolerances or `known_differences.toml`). Agents usually want `--no-html`.
 
-The agent may *propose* changes to the bar (a tolerance, an advisory check, a known difference) with the evidence and a ready-to-paste snippet; you decide. Those rules are enforced only under `plotparity loop`, which hashes the cases, settings and known differences and fails an iteration if they change. Plain `plotparity run` doesn't check.
+The agent never changes or suggests changes to the bar (tolerances, severities, known differences); it may report a finding it believes is the harness's fault, with evidence. Changing the bar is a human decision. This is enforced only under `plotparity loop`, which hashes the cases, settings and known differences and fails an iteration if they change; plain `plotparity run` doesn't check.
 
 ## What a pass means
 
