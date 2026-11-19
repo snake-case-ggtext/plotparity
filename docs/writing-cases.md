@@ -53,7 +53,7 @@ ggplot(df, aes("x", "y", label="label")) + geom_richtext()
 
 - **R:** ggplot2, the extension, `grid::unit`, `PT_PER_MM`.
 - **Python:** all of `plotnine`, `margin`, `pd`, `np`, and every public name of the port.
-- **Both:** the string `{assets}` in data becomes the library's `_assets/` path.
+- **Both:** the string `{assets}` in data becomes the library's `_assets/` path. Every file in `_assets/` is part of the reference hash, so editing any asset makes all references stale: re-run `references`.
 
 **Rules the loader enforces**
 

@@ -123,7 +123,9 @@ Then a ```` ```r ```` block (the spec), and zero or more ```` ```python <port-pa
 - Runs in the candidate interpreter with `PYTHONPATH = <port parent>:<plotparity/src>`.
 - Checks that `<package>.__file__` is under the resolved source. If not, the case is an `environment_error`.
 - Before each case: resets rcParams, pins fonts, and resets the plotnine theme.
-- Records draw calls through every `draw_*` route, along with route, paint order, group stack, clip and panel bbox. Saves the PNG.
+- Draws once to let plotnine finalize layout, then draws **once more through the recording proxy on the Agg renderer and saves `candidate.png` from that same buffer**, so the image and the observations come from one draw. (Accepted after checking that these PNGs are pixel-identical to the previous `savefig` PNGs for all 27 rendered cases of both example ports.)
+- Records every `draw_*` route (`draw_path`, `draw_text`, `draw_image` decoded; `draw_path_collection`, `draw_markers`, `draw_quad_mesh`, `draw_gouraud_triangles`, `draw_tex` recorded by name), with paint order, group stack, clip, panel bbox, effective alpha, and the **owner** of each event (§5, "Ownership").
+- Then draws once more with the port's top-level artists hidden and records `port_ink_px`: how many panel pixels the port's artists changed. This diagnostic pass never feeds the PNG or the observations.
 
 **R script**
 - Registers the same DejaVu TTFs (taken from the candidate interpreter's matplotlib).
@@ -143,52 +145,62 @@ Then a ```` ```r ```` block (the spec), and zero or more ```` ```python <port-pa
 
 The adapter owns extraction, matching and its own checks.
 
+**Ownership: every candidate draw event is accounted for (core-enforced).** During the recording draw the probe wraps the `draw` of every *top-level artist* (each child of an Axes, each non-Axes child of the Figure) and tags every event with the outermost one that was drawing. Then:
+
+| Event drawn by | Rule |
+| --- | --- |
+| an artist whose class comes from the port package (`type(a).__module__` is the package or below it) | must be assigned to a component by the adapter; anything left over, including paths the segmentation rejects, is `unexpected_drawing` (gating fail) |
+| any other artist (plotnine/matplotlib: other layers such as `geom_point`, panel background, grid, axes, legends, titles) | permitted: not the port's responsibility. Counted in the report (`drawing.other_layer_events`) |
+| no top-level artist | `unexpected_drawing` |
+
+Known limit: a port that adds plain matplotlib artists (e.g. `ax.text`) straight to the axes is treated as "other layers". Its drawing is still segmented into components and compared, but drawing outside components isn't flagged. Effects that bypass the renderer proxy (an `agg_filter`, writing to the canvas buffer) are invisible to the probe; the `ink_present` and empty-candidate rules below are the backstops.
+
 **ggtext segmentation (Python side) works by geometry, not group names.** Group names are ambiguous: matplotlib's `Text` and `Patch` open `text` and `patch` groups, and ports differ (plotnine-ggtext wraps every box in a single `open_group("richtext")`; ggtext_ShanEllis wraps each label in `open_group("text")`). The steps:
 1. Partition draw events by the group *instance* directly below `axes`. The probe records instance ids.
 2. A partition counts as rich text if it has text anchored inside the panel.
 3. Keep that partition's text and images, plus closed paths strictly inside the panel. This excludes the panel background.
 4. A frame path starts a new box, and the text that follows belongs to it.
-5. Undecoded routes in a rich-text partition are unassigned, so the case fails closed. It reuses the core checks in `compare.py`.
+5. The adapter returns the paint indices of the events it assigned; the core applies the ownership rule to the rest.
 
 ```python
-class Adapter:
-    name, version
-    def components(engine, observations, canvas, expect) -> (components, unassigned_events)
-    def match(ref_components, cand_components) -> (pairs, missing, unexpected)   # adapter-local; must
-        # not use the properties under test; must enforce a max cost (no forced matches)
-    checks = [...]          # adapter checks, registered by name
-    profile = "profile.toml"
+# adapter module
+NAME, VERSION, OBSERVE_R, PROFILE, EXPECT_KEYS
+def components(engine, observations, expect, canvas_pt) -> (components, assigned_paint_indices)  # {} for "r"
+def component_id(i, comp) -> str               # stable id from the reference side
+def describe_component(comp) -> dict           # what the core prints for a missing/unexpected component
+def match(ref_components, cand_components) -> (pairs, missing, unexpected)   # adapter-local; must
+    # not use the properties under test; must enforce a max cost (no forced matches)
+CHECKS = {name: fn}     # fn(ref, cand, P, add, expect); returns False when it doesn't apply to the pair
 ```
 
-A component carries:
-- id: from the reference side
-- `text_runs`
-- an optional `shape` (vertices, fill, edge, rounded)
-- angle, bbox, clip, paint range
+A component carries core keys where they apply (the core runs a check only if its key is present):
+- `text_runs` (each: `text`, `color_hex`, effective `alpha`, `fontsize_pt`, `fontweight`, `fontstyle`; candidate runs also `visible_fraction`, `ink_quad_norm_tl`)
+- `rect` (`facecolor_hex`/`face_alpha`, `edgecolor_hex`/`edge_alpha`, `unrotated_width_pt`/`unrotated_height_pt`)
+- `angle_deg`, `centroid_norm_tl`
 - adapter extras
 
 **Fail-closed rules (core-enforced)**
-- **Unassigned candidate events.**
-  - Rule: a candidate draw event in the panel that the adapter didn't assign to a component (and didn't whitelist as chrome, e.g. `geom_point` markers) makes the case **fail** with `unexpected_drawing`.
-  - Reason: this catches extra or duplicate output drawn outside components.
+- **Unaccounted candidate drawing** (the ownership table above) makes the case **fail** with `unexpected_drawing`. This catches extra, duplicate or stray output drawn outside components.
 - **Applicability from the reference.**
   - Rule: a property present on the reference side and missing on the candidate side is a **fail**.
   - Example: the reference box has a frame, the candidate draws none.
 - **Text runs align by text content.**
-  - Rule: runs are aligned by their text, never by index. If they can't be aligned, `text_content` fails and that pair's style checks are `unmeasured`.
-- **Empty candidate.**
-  - Rule: if the reference has components and the candidate has none, the result depends on the candidate PNG:
-    - no ink in the panel: **fail**
-    - ink present: `unmeasured` (`extractor_blind`)
-- **Check errors.**
-  - Rule: a check that raises, or produces a NaN, is an infrastructure error.
+  - Rule: runs are aligned by their text, never by index. If they can't be aligned, `text_content` fails and that pair's style and visibility checks are `unmeasured`.
+- **Visibility is checked, not assumed.** A drawn run can still be invisible:
+  - `text_alpha` compares effective opacity: the colour's own alpha (R's `#RRGGBBAA`) times the graphics-context alpha (R's gpar `alpha`, inherited down the grob tree; matplotlib's forced artist alpha). `fill_color`/`edge_color` compare frame opacity the same way (`alpha_tol`). A transparent colour is never turned into opaque black.
+  - `text_visible` fails a candidate run that lies mostly outside its clip rectangle (or the canvas) while the reference run is visible.
+  - `ink_present` (pixel backstop) requires ink in `candidate.png` inside each visible run's rotated rectangle. It can be fooled by other ink under the text (e.g. a `geom_point` dot at the label's anchor); the structured checks above are primary.
+- **Empty candidate.** If the reference has components and the candidate has none:
+  - the port's artists changed no panel pixels (`port_ink_px == 0`): **fail** (`component_count`, `missing_component`);
+  - they did, or it couldn't be measured: `unmeasured` (`extractor_blind`). The adapter can't see how this port draws; extend it. Never a pass.
+- **Non-finite numbers.** Profile numbers must be finite and >= 0 (else a configuration error, exit 3). Every number in both sides' components must be finite, and every computed difference is checked before it is compared with a tolerance (`d > nan` is false, which would silently pass). Either violation is an infrastructure error (`check_error`), as is a check that raises.
 
 **Core checks** (`compare.py`)
-- inventory: `component_count`, `missing_component`, `unexpected_component`
-- text: `text_content`, `text_color`, `font_weight`, `font_style`, `font_size`
-- shape and placement: `fill_color`, `edge_color`, `rotation`, `centroid`, `shape_size`
+- inventory: `component_count`, `missing_component`, `unexpected_component`, `unexpected_drawing`, `extractor_blind`, `text_content`, `text_visible`, `ink_present`
+- text style: `text_color`, `text_alpha`, `font_weight`, `font_style`, `font_size`
+- shape and placement: `fill_color`, `edge_color` (colour and opacity), `rotation`, `centroid`, `shape_size`
 
-**ggtext adapter checks:** `raw_markup_leak`, `sup_sub_offset`, `line_count`, `text_overflow`, `padding`, `rounded_corners`.
+**ggtext adapter checks:** `raw_markup_leak`, `sup_sub_offset`, `line_count`, `line_breaks` (advisory), `text_overflow`, `padding`, `rounded_corners`.
 
 **Profile** (shipped by the adapter, overridden by the project)
 
@@ -196,7 +208,7 @@ A component carries:
 [checks.text_color]
 severity = "gating"    # gating | advisory | off
 tier = "style"         # inventory | layout | style: orders the feedback
-tol = 6.0
+tol = 6.0              # numeric keys: tol, rel_tol, alpha_tol, min (finite, >= 0)
 calibration = "ΔE2000; frozen in REPORT.md before mutation testing"
 ```
 
@@ -210,12 +222,16 @@ An unknown check name or key is an error.
 3. `unmeasured`: any gating `unmeasured`, or `measurable: false`
 4. `pass`
 
-**Exit codes:** `1` if any case fails, else `2` if any case is unmeasured or infrastructure, else `0`. `3` means a usage error.
+**Exit codes:** `1` if any case fails, else `2` if any case is unmeasured or infrastructure, else `0`. `3` means a usage or configuration error.
+
+**What a pass means:** the selected gating checks passed for the selected measurable cases. It says nothing about what the adapter doesn't extract (README, "What is (not yet) checked").
+
+**Per-check outcomes.** Each case result records, per component and per check, `pass`, `fail`, `unmeasured`, `known_difference`, `off` or `not_applicable` (plus a `case` entry for case-level checks), and a `drawing` summary (port events, how many are in components, other-layer events, events with no owner).
 
 **`known_differences.toml`** (human-owned)
 - Each entry has `case`, `check`, an optional `component` glob, and a `reason`.
 - Matching findings are reported as `known_difference`, which doesn't gate.
-- Unused entries are reported.
+- Unused entries are reported per exact entry (a mistyped `component` glob shows up even if a sibling entry for the same case and check is used).
 - The file is in the harness hash.
 
 ## 7. References
@@ -225,12 +241,13 @@ References belong to the library because they depend only on the R side. Every p
 
 `meta.json` holds an **input hash** over:
 - the case front matter (minus `split`) and the R block
+- the contents of the library's whole `_assets/` folder (conservative: any asset edit makes every reference stale; dotfiles are ignored)
 - the `[render]` and `[reference]` config
 - `render.R`, `observe.R` and the adapter version
 - R and package versions
 - font file hashes
 
-`run` treats a reference as an infrastructure error if:
+Rendering has a timeout (120 s per case). `run` treats a reference as an infrastructure error if:
 - its input hash is stale, or
 - the font hashes differ from the candidate's.
 
@@ -244,7 +261,16 @@ References belong to the library because they depend only on the R side. Every p
 - the harness hash
 - per-case findings
 
-Each finding has a fingerprint, `case|check|ref_component`. With `--previous`, each finding is tagged `new`, `persisting` or `fixed`. A finding is `fixed` only if the pair is still matched and the check ran.
+Each finding has a fingerprint, `case|check|ref_component`. With `--previous`, current failures are tagged `new` or `persisting`. Each previous failure that no longer fails is classified from the per-check outcome on the same component:
+
+| Outcome now | Reported as |
+| --- | --- |
+| the check ran on the still-matched component and passed | `fixed` |
+| it matches a known difference | `accepted` (the defect is still there) |
+| the check is `off` | `disabled` |
+| anything else (component unmatched, case unmeasured or errored, check not applicable or unmeasured) | `gone` |
+
+If the harness hash differs from the previous report's, the report says so and names the changed parts.
 
 **`report.md`**, for agents:
 - status
@@ -259,7 +285,7 @@ Each finding has a fingerprint, `case|check|ref_component`. With `--previous`, e
 | --- | --- |
 | `loop init` | Stores the harness hash. |
 | `loop iterate` | Snapshots the source and records the diff, then runs `run --previous`. Appends to `loop.jsonl`. Fails the iteration if the harness hash changed. |
-| `loop holdout` | Prints counts only. |
+| `loop holdout` | Prints counts only. Fails (exit 1) if the harness hash changed since `loop init`, like `iterate`. |
 | `loop finish` | Closes the loop. |
 
 The harness hash covers:
@@ -274,6 +300,7 @@ The harness hash covers:
 **Selftest**
 - `mutations/suite.toml` has entries `{id, patch, cases, must_fail = [checks]}`, or `must_pass = true` for negative controls.
 - Selftest copies `known_good`, applies each patch (`git apply --check` first), runs, and asserts the expectation.
+- A `must_fail` mutation must also be **visible**: its `candidate.png` must differ from the clean render of the same case (same engine). The changed-pixel count is printed (`Δpx`); a mutation nobody could see proves nothing about the checker.
 - It also asserts that the clean `known_good` passes dev and holdout.
 
 **Validate** checks:
@@ -290,9 +317,9 @@ The harness hash covers:
 | Same-engine regression mode, other engines | The engine abstraction allows them; untested |
 | `datasets`, `data_file`, `levels` | No current case needs them |
 | Severity `info`, per-split exit status, progress score | Simpler status model |
-| `paint_order`, `ink_present` checks | Add with the ggridges adapter (paint order), or when a mutation shows the need |
+| `paint_order` check | Add with the ggridges adapter |
 | `explore` command, `new-project` scaffold | |
-| Git branch resolution / port caching | Ports are a shallow clone of an explicit commit or tag into `~/.cache/plotparity` |
+| Git branch resolution | Ports are a shallow clone of an explicit commit or tag into `~/.cache/plotparity` |
 | Known-difference approval/expiry workflow | The file is human-owned and hashed |
 | Crash re-run | One process per run; `--isolate` gives one per case |
 
@@ -302,5 +329,5 @@ The harness hash covers:
 - **References store raw R observations, not components.** Components are computed at run time, so a Python-side adapter change doesn't force an R re-render. The `observe.R` hash and the adapter version are part of the input hash.
 - **R colours are resolved with R's `col2rgb`** in `observe.R`, as `#RRGGBB` or `#RRGGBBAA`. R-only names such as `red3` and `grey40` were previously unparseable on the Python side.
 - **The R observations keep jsonlite's default 4-decimal precision,** identical to the research references.
-- **`MAX_MATCH_COST` (2.5) and `CANVAS_PT` (640×480 pt) are adapter constants.** `CANVAS_PT` assumes the 640×480 @ 72 dpi canvas; see the open issues in AGENTS.md.
-- **Empty candidate output is a `fail`** (`component_count` and `missing_component`). It is never `unmeasured`.
+- **`MAX_MATCH_COST` (2.5) is an adapter constant.** The canvas size in points comes from the library's `[render]` config and is passed to `components()`.
+- **Caches are published atomically.** A git port is fetched into a temp dir, checked for the package, marked complete inside `.git`, then renamed into place; an entry without the marker is rebuilt. A managed env is built under an exclusive lock and trusted only once `.complete` exists (written after the env imports plotnine/matplotlib). Envs aren't built elsewhere and renamed, because a venv embeds its own path.

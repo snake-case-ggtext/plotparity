@@ -10,7 +10,7 @@ from pathlib import Path
 from .cases import CaseError
 from .compare import ProfileError
 from .ports import PortError
-from .project import ConfigError, Project
+from .project import ConfigError, Project, UsageError
 
 
 def _out(project: Project, given: str | None, kind: str) -> Path:
@@ -108,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     try:
         return a.fn(a)
-    except (ConfigError, CaseError, ProfileError, PortError, FileExistsError) as exc:
+    except (ConfigError, CaseError, ProfileError, PortError, UsageError) as exc:
         print(f"plotparity: error: {exc}", file=sys.stderr)
         return 3
 

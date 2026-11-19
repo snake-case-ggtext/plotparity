@@ -13,12 +13,14 @@ The geometry/normalization functions at the bottom are copied verbatim from the 
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from ...compare import exceeds
 from ...engines.python.probe import point_in_bbox, rgba_to_hex
 
 NAME = "ggtext"
@@ -28,13 +30,14 @@ OBSERVE_R = HERE / "observe.R"
 PROFILE = HERE / "profile.toml"
 EXPECT_KEYS = {"frame"}             # adapter-specific `expect` keys
 
-# Normalized coords * CANVAS_PT = points (640x480 px @ 72 dpi). Used by the padding insets.
-CANVAS_PT = (640.0, 480.0)
+# Normalized coords * canvas size in points = points. The canvas comes from the library's [render] config
+# (width_px * 72 / dpi); this default only applies when a caller doesn't pass one.
+DEFAULT_CANVAS_PT = (640.0, 480.0)
 # Pairs costing more than this are reported as missing + unexpected instead of being force-matched.
 # Cost = 2*centroid distance + 1.5*(1 - word Jaccard); 2.5 ≈ "different words AND > half a canvas apart".
 MAX_MATCH_COST = 2.5
-# Python routes this adapter decodes. Other routes sharing a partition with rich text are unassigned (fail closed).
-DECODED = {"path", "text", "image"}
+# The adapter decodes path / text / image events into components. Everything else the port draws stays unassigned,
+# and the core reports it as `unexpected_drawing` (fail closed).
 
 
 # ───────────────────────────── components ─────────────────────────────
@@ -51,19 +54,20 @@ def _partition_key(ev: dict) -> tuple:
     return ("outside-axes",)
 
 
-def _segment_python(obs: dict[str, Any]) -> tuple[list[dict], list[dict]]:
+def _segment_python(obs: dict[str, Any]) -> tuple[list[dict], set[int]]:
     """Geometry-first segmentation, no dependence on the port's group names:
     1. partition draw events by group instance below the axes (see _partition_key); a partition is rich text if
        it has text anchored inside the panel;
     2. keep its text and images, and closed paths strictly inside the panel (excludes the panel background);
     3. within a partition, each closed path starts a box and following text/images belong to it.
-    Undecoded routes (collections, markers, meshes) sharing a partition with rich text are unassigned → fail closed."""
+    Returns (boxes, paint indices of the events assigned to boxes). The core decides what unassigned events mean
+    (events drawn by the port's own artists must all be assigned)."""
     events = obs["events"]
     fig_w, fig_h = obs["figure_px"]
     dpi = obs["dpi"]
     panel = obs["panels_norm_tl"][0] if obs.get("panels_norm_tl") else None
     if panel is None:
-        return [], []
+        return [], set()
 
     def inside(ev) -> bool:
         if ev["kind"] == "text":
@@ -78,7 +82,7 @@ def _segment_python(obs: dict[str, Any]) -> tuple[list[dict], list[dict]]:
     parts: dict[tuple, list[dict]] = {}
     for ev in events:
         parts.setdefault(_partition_key(ev), []).append(ev)
-    boxes, unassigned = [], []
+    boxes, assigned = [], set()
     for key, evs in parts.items():
         if key == ("outside-axes",):
             continue
@@ -87,7 +91,6 @@ def _segment_python(obs: dict[str, Any]) -> tuple[list[dict], list[dict]]:
         # A rich-text partition keeps ALL its text/images (text pushed outside the panel by a bug is still the
         # label's text); paths must be closed and strictly inside the panel (never the panel background).
         decoded = [e for e in evs if e["kind"] in ("text", "image") or (e["kind"] == "path" and inside(e))]
-        unassigned += [e for e in evs if e["kind"] not in DECODED]
         cur = None
         for ev in decoded:
             if ev["kind"] == "path":
@@ -104,35 +107,43 @@ def _segment_python(obs: dict[str, Any]) -> tuple[list[dict], list[dict]]:
                 cur["angle_deg"] = ev["angle_deg"]
             elif ev["kind"] == "image":
                 if cur is None:
-                    unassigned.append(ev)
-                else:
-                    cur["images"].append(ev)
+                    continue                           # an image before any box: unassigned
+                cur["images"].append(ev)
+            assigned.add(ev["paint_index"])
         if cur is not None:
             boxes.append(cur)
     for i, b in enumerate(boxes):
         b["box_index"] = i + 1
         _enrich_box_geometry(b, fig_w, fig_h, dpi)
-    return boxes, unassigned
+    return boxes, assigned
 
 
-def components(engine: str, obs: dict[str, Any], expect: dict[str, Any]) -> tuple[list[dict], list[dict]]:
-    """Return (components, unassigned candidate events)."""
+def components(engine: str, obs: dict[str, Any], expect: dict[str, Any],
+               canvas_pt: tuple[float, float] = DEFAULT_CANVAS_PT) -> tuple[list[dict], set[int]]:
+    """Return (components, paint indices of the candidate events assigned to them; empty for the reference)."""
     if engine == "python":
-        boxes, unassigned = _segment_python(obs)
+        boxes, assigned = _segment_python(obs)
     elif engine == "r":
-        boxes, unassigned = (obs.get("ggtext_grobs") or {}).get("boxes") or [], []
+        boxes, assigned = (obs.get("ggtext_grobs") or {}).get("boxes") or [], set()
     else:
         raise ValueError(f"ggtext adapter has no extractor for engine {engine!r}")
     comps = []
     for b in boxes:
-        c = _normalize_box(b, engine)
+        c = _normalize_box(b, engine, canvas_pt)
         c["images"] = b.get("images", [])
+        if not expect.get("frame", True):
+            c["rect"] = None            # the case says this geom draws no frame: frame checks don't apply
         comps.append(c)
-    return comps, unassigned
+    return comps, assigned
 
 
 def component_id(i: int, comp: dict) -> str:
     return f"box[{i + 1}:{comp['full_text'][:24]!r}]"
+
+
+def describe_component(comp: dict) -> dict:
+    """What the core prints for a component it can't pair (missing or unexpected)."""
+    return {"text": comp["full_text"], "centroid_norm_tl": comp["centroid_norm_tl"]}
 
 
 def match(ref: list[dict], cand: list[dict]) -> tuple[list[tuple[int, int]], list[int], list[int]]:
@@ -155,13 +166,16 @@ def match(ref: list[dict], cand: list[dict]) -> tuple[list[tuple[int, int]], lis
 
 # ───────────────────────────── ggtext checks ─────────────────────────────
 # Signature: fn(ref, cand, P, add, expect). P = merged profile entry. add(check, expected, observed, message, delta=None)
+# Return False when the check does not apply to this pair (recorded as not_applicable, never as pass).
 
-RAW_MARKUP = ("**", "<span", "<br", "<sup", "<sub", "<b>", "<i>")
+# HTML tags gridtext understands, Markdown bold, and ggtext's ~sub~ / ^sup^ syntax.
+RAW_MARKUP = re.compile(r"</?(span|b|i|strong|em|br|sup|sub|img)\b|\*\*|~[^~\s]+~|\^[^^\s]+\^", re.I)
 
 
 def raw_markup_leak(r, c, P, add, expect):
+    literal = set(r["words"])            # a token R also draws verbatim is content, not leaked markup
     for tok in c["words"]:
-        if any(m in tok for m in RAW_MARKUP):
+        if tok not in literal and RAW_MARKUP.search(tok):
             add("raw_markup_leak", "parsed rich text", tok, f"Raw markup token {tok!r} leaked into rendered text.")
 
 
@@ -170,6 +184,8 @@ def sup_sub_offset(r, c, P, add, expect):
     ref_scripts = [t for ln in r["lines"] for t in ln["tokens"] if t["is_small_script"] and abs(t["voff_pt"]) >= tol]
     ref_all = [t for ln in r["lines"] for t in ln["tokens"] if t["is_small_script"]]
     cand_scripts = [t for ln in c["lines"] for t in ln["tokens"] if t["is_small_script"]]
+    if not ref_scripts:
+        return False
     for rs in ref_scripts:
         occ = [t for t in ref_all if t["text"] == rs["text"]].index(rs)   # pair same-text scripts in order
         same = [cs for cs in cand_scripts if cs["text"] == rs["text"]][occ:occ + 1]
@@ -194,9 +210,23 @@ def line_count(r, c, P, add, expect):
             delta=len(c["lines"]) - len(r["lines"]))
 
 
+def line_breaks(r, c, P, add, expect):
+    """Advisory: same number of lines, but words wrap at different points (cross-engine hinting can move them)."""
+    if len(r["lines"]) != len(c["lines"]) or r["words"] != c["words"]:
+        return False                     # line_count / text_content report these
+    for i, (rl, cl) in enumerate(zip(r["lines"], c["lines"])):
+        rw, cw = [t["text"] for t in rl["tokens"]], [t["text"] for t in cl["tokens"]]
+        if rw != cw:
+            add("line_breaks", " ".join(rw), " ".join(cw),
+                f"Line {i + 1} holds different words: expected {' '.join(rw)!r}, observed {' '.join(cw)!r}.",
+                sub=f"line[{i + 1}]")
+
+
 def text_overflow(r, c, P, add, expect):
     lm = c.get("layout_metrics")
-    if expect.get("frame", True) and lm is not None and lm["text_overflow_x_pt"] > P["tol"]:
+    if not expect.get("frame", True) or lm is None:
+        return False
+    if exceeds(lm["text_overflow_x_pt"], P["tol"], "text_overflow"):
         add("text_overflow", f"<= {P['tol']}pt", lm["text_overflow_x_pt"],
             f"Text overflows box horizontal bounds by {lm['text_overflow_x_pt']}pt (wrapping or width constraint broken).",
             delta=lm["text_overflow_x_pt"])
@@ -204,7 +234,9 @@ def text_overflow(r, c, P, add, expect):
 
 def rounded_corners(r, c, P, add, expect):
     rr, cr = r.get("rect"), c.get("rect")
-    if expect.get("frame", True) and rr and cr and rr["is_rounded"] != cr["is_rounded"]:
+    if not (expect.get("frame", True) and rr and cr):
+        return False
+    if rr["is_rounded"] != cr["is_rounded"]:
         add("rounded_corners", rr["is_rounded"], cr["is_rounded"],
             f"Box corner rounding mismatch: expected rounded={rr['is_rounded']}, observed rounded={cr['is_rounded']}.")
 
@@ -212,20 +244,42 @@ def rounded_corners(r, c, P, add, expect):
 def padding(r, c, P, add, expect):
     rr, cr = r.get("rect"), c.get("rect")
     if not (expect.get("frame", True) and rr and cr and rr.get("has_visible_frame") and r.get("insets_pt") and c.get("insets_pt")):
-        return
+        return False
     for key in ("left", "bottom_to_last_baseline", "top_to_first_baseline"):
         ev, ov = r["insets_pt"][key], c["insets_pt"][key]
-        if abs(ov - ev) > P["tol"]:
+        if exceeds(abs(ov - ev), P["tol"], "padding"):
             add("padding", ev, ov, f"Text-to-frame inset ({key.replace('_', ' ')}) is {ov:.1f}pt, expected {ev:.1f}pt.",
                 delta=round(ov - ev, 2), sub=key)
 
 
-CHECKS = {f.__name__: f for f in (raw_markup_leak, sup_sub_offset, line_count, text_overflow, rounded_corners, padding)}
+CHECKS = {f.__name__: f for f in (raw_markup_leak, sup_sub_offset, line_count, line_breaks, text_overflow,
+                                   rounded_corners, padding)}
 
 
-# ───────────────── copied verbatim from experiment/compare.py + experiment/probes.py ─────────────────
+# ───────────────── from experiment/compare.py + experiment/probes.py (changes noted inline) ─────────────────
 
-def _split_words(run: dict[str, Any], advance_pt: float | None) -> list[dict[str, Any]]:
+def _colour(raw: Any, alpha: Any = 1.0) -> tuple[str, float]:
+    """(#rrggbb or "none", effective alpha): the colour's own alpha (R gives #RRGGBBAA) times a separate alpha
+    (R's gpar alpha, or the probe's effective alpha for an opaque Python colour). "none" has alpha 0."""
+    hex_, a = rgba_to_hex(raw)
+    if hex_ == "none":
+        return "none", 0.0
+    return hex_, round(a * (1.0 if alpha is None else float(alpha)), 4)
+
+
+def _visible_fraction(bbox: list[float] | None, clip: list[float] | None) -> float | None:
+    """Share of a text run's bbox inside its clip rectangle and the canvas (None: no bbox to judge)."""
+    if not bbox or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        return None
+    area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+    lo = [max(bbox[0], 0.0), max(bbox[1], 0.0)]
+    hi = [min(bbox[2], 1.0), min(bbox[3], 1.0)]
+    if clip:
+        lo, hi = [max(lo[0], clip[0]), max(lo[1], clip[1])], [min(hi[0], clip[2]), min(hi[1], clip[3])]
+    return round(max(0.0, hi[0] - lo[0]) * max(0.0, hi[1] - lo[1]) / area, 4)
+
+
+def _split_words(run: dict[str, Any], advance_pt: float | None, canvas_pt: tuple[float, float]) -> list[dict[str, Any]]:
     """Split a multi-word run into one run per word (same style, same baseline).
 
     Ports differ in how they batch text: R/gridtext draws word by word, other ports draw a whole styled
@@ -237,7 +291,7 @@ def _split_words(run: dict[str, Any], advance_pt: float | None) -> list[dict[str
     if len(words) <= 1:
         return [run]
     out, pos, n = [], 0, len(run["text"])
-    W, H = CANVAS_PT
+    W, H = canvas_pt
     rad = math.radians(run["angle_deg"])
     for w in words:
         start = run["text"].index(w, pos)
@@ -252,17 +306,15 @@ def _split_words(run: dict[str, Any], advance_pt: float | None) -> list[dict[str
     return out
 
 
-def _normalize_box(box: dict[str, Any], engine: str) -> dict[str, Any]:
+def _normalize_box(box: dict[str, Any], engine: str, canvas_pt: tuple[float, float] = DEFAULT_CANVAS_PT) -> dict[str, Any]:
     """Normalize a box from Probe 2D (R grob), Probe 2B (SVG), or Probe 2C (Python intercept)."""
     runs = []
     for r in box.get("text_runs", []):
         txt = str(r.get("text", "")).strip()
         if not txt:
             continue
-        col_raw = r.get("color_hex") or r.get("color") or "#000000"
-        col_hex, _ = rgba_to_hex(col_raw)
-        if col_hex == "none":
-            col_hex = "#000000"
+        # Effective alpha, and no "none" -> black coercion: a transparent run must not pass as opaque black.
+        col_hex, alpha = _colour(r.get("color_hex") or r.get("color") or "#000000", r.get("alpha", 1.0))
         base_run = {
             "text": txt,
             "x_norm": float(r["x_norm"]),
@@ -270,28 +322,35 @@ def _normalize_box(box: dict[str, Any], engine: str) -> dict[str, Any]:
             "local_x_pt": r.get("local_x_pt", r.get("x_local_pt")),
             "local_y_pt": r.get("local_y_pt", r.get("y_local_pt")),
             "color_hex": col_hex,
-            "alpha": float(r.get("alpha", 1.0)),
+            "alpha": alpha,
             "fontsize_pt": float(r.get("fontsize_pt") or 11.0),
             "fontweight": str(r.get("fontweight", "normal")).lower(),
             "fontstyle": str(r.get("fontstyle", "normal")).lower(),
             "angle_deg": float(r.get("angle_deg", box.get("angle_deg", 0.0))),
             "partially_clipped": bool(r.get("partially_clipped", False)),
             "resolved_font_file": r.get("resolved_font_file"),
+            # Python only (R grobs carry no drawn extent/clip): where the run's ink is, and how much survives clipping.
+            "ink_quad_norm_tl": r.get("quad_norm_tl"),
+            "visible_fraction": _visible_fraction(r.get("bbox_norm_tl"), r.get("clip_bbox_norm_tl")),
         }
-        runs.extend(_split_words(base_run, r.get("advance_width_pt")))
+        runs.extend(_split_words(base_run, r.get("advance_width_pt"), canvas_pt))
 
     rect = box.get("rect") or None
     norm_rect = None
     if rect and isinstance(rect, dict) and rect.get("bbox_norm_tl"):
-        fc = rect.get("facecolor_hex") or rect.get("fill") or "none"
-        ec = rect.get("edgecolor_hex") or rect.get("col") or "none"
-        fc = fc.lower() if isinstance(fc, str) else "none"
-        ec = ec.lower() if isinstance(ec, str) else "none"
+        # Python: opaque hex + the probe's effective alpha. R: #RRGGBBAA times gpar alpha (`alpha`, if recorded).
+        fc, fa = _colour(rect.get("facecolor_hex") or rect.get("fill") or "none",
+                         rect.get("face_alpha", rect.get("alpha", 1.0)))
+        ec, ea = _colour(rect.get("edgecolor_hex") or rect.get("col") or "none",
+                         rect.get("edge_alpha", rect.get("alpha", 1.0)))
+        fc, ec = (fc if fa > 0 else "none"), (ec if ea > 0 else "none")
         has_visible_frame = (fc != "none") or (ec != "none")
         norm_rect = {
             "bbox_norm_tl": [float(v) for v in rect["bbox_norm_tl"]],
             "facecolor_hex": fc,
+            "face_alpha": fa,
             "edgecolor_hex": ec,
+            "edge_alpha": ea,
             "is_rounded": bool(rect.get("is_rounded", False)),
             "has_visible_frame": has_visible_frame,
             "unrotated_width_pt": rect.get("unrotated_width_pt") or rect.get("width_pt"),
@@ -319,7 +378,7 @@ def _normalize_box(box: dict[str, Any], engine: str) -> dict[str, Any]:
     angle_deg = float(box.get("angle_deg", runs[0]["angle_deg"] if runs else 0.0))
     lines = _cluster_lines(runs, angle_deg)
 
-    pads = _text_insets(norm_rect, runs, angle_deg)
+    pads = _text_insets(norm_rect, runs, angle_deg, canvas_pt)
 
     return {
         "box_index": box.get("box_index", 0),
@@ -337,7 +396,8 @@ def _normalize_box(box: dict[str, Any], engine: str) -> dict[str, Any]:
     }
 
 
-def _text_insets(norm_rect: dict[str, Any] | None, runs: list[dict[str, Any]], angle_deg: float) -> dict[str, float] | None:
+def _text_insets(norm_rect: dict[str, Any] | None, runs: list[dict[str, Any]], angle_deg: float,
+                 canvas_pt: tuple[float, float] = DEFAULT_CANVAS_PT) -> dict[str, float] | None:
     """Text-to-frame insets in unrotated box-local pt, derived identically for both engines.
 
     Rotates each run's anchor (left baseline) around the frame centre by -angle using only
@@ -349,7 +409,7 @@ def _text_insets(norm_rect: dict[str, Any] | None, runs: list[dict[str, Any]], a
     w, h = norm_rect.get("unrotated_width_pt"), norm_rect.get("unrotated_height_pt")
     if not w or not h:
         return None
-    W, H = CANVAS_PT
+    W, H = canvas_pt
     bb = norm_rect["bbox_norm_tl"]
     cx, cy = 0.5 * (bb[0] + bb[2]) * W, (1.0 - 0.5 * (bb[1] + bb[3])) * H
     a = math.radians(-angle_deg)

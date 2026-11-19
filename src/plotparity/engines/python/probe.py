@@ -1,11 +1,17 @@
 """Draw-call intercept probe for matplotlib (research name: Probe 2C).
 
-Wraps the live Agg renderer during ``fig.draw(proxy)`` and records every draw_path / draw_text /
-draw_image call (plus open_group nesting and paint order) on the SAME renderer that produces the PNG.
-Engine-generic: it knows nothing about any extension. Adapters turn the raw events into components.
+Wraps the live Agg renderer during ``fig.draw(proxy)`` and records every draw call (draw_path / draw_text /
+draw_image decoded; the other routes recorded by name) plus open_group nesting and paint order, on the SAME
+renderer and in the SAME draw that produces the PNG. Engine-generic: it knows nothing about any extension.
+Adapters turn the raw events into components.
 
-Ported verbatim from experiment/probes.py (RecordingRendererProxy) so findings stay identical;
-additions: draw_image recording, `record()` entry point returning raw events only.
+Ownership: during the recording draw, the `draw` of every top-level artist (each child of an Axes, and each
+non-Axes child of the Figure) is wrapped, so each event carries `owner`, an index into `observations["owners"]`
+(the artist's class). Events drawn outside every top-level artist have `owner: None`. The core uses this to
+decide which events the port is responsible for (DESIGN.md §5, "Ownership").
+
+Ported from experiment/probes.py (RecordingRendererProxy); additions: draw_image/draw_tex recording, owner
+attribution, effective alpha (graphics-context overrides), `record()` returning raw events and the RGBA buffer.
 """
 
 from __future__ import annotations
@@ -92,8 +98,15 @@ def _norm_angle(deg: float) -> float:
     return round(a, 3)
 
 
-# ---------------------------------------------------------------------------
-# Probe 2A: Live Matplotlib Artist Tree (Generic vs Package-Specific)
+def _effective_face_alpha(gc, rgb_face) -> float:
+    """Alpha Agg actually paints a face with: a forced gc alpha (artist `alpha=`) or an RGB (3-tuple) face takes
+    the gc alpha, otherwise the face colour's own alpha (matplotlib `_backend_agg_wrapper` convert_face)."""
+    if rgb_face is None:
+        return 0.0
+    face = [float(v) for v in rgb_face] if not isinstance(rgb_face, str) else list(mcolors.to_rgba(rgb_face))
+    if gc.get_forced_alpha() or len(face) == 3:
+        return round(float(gc.get_alpha()), 4)
+    return round(face[3], 4)
 
 
 class RecordingRendererProxy:
@@ -116,6 +129,10 @@ class RecordingRendererProxy:
         self._paint_index = 0
         self.events: list[dict[str, Any]] = []
         self.groups_seen: list[str] = []
+        self.owner_stack: list[int] = []     # indices into record()'s owner list; [0] = the top-level artist
+
+    def _owner(self) -> int | None:
+        return self.owner_stack[0] if self.owner_stack else None
 
     def __getattr__(self, name: str):
         return getattr(self._wrapped, name)
@@ -146,8 +163,11 @@ class RecordingRendererProxy:
             h_pt = (y1 - y0) * 72.0 / self._dpi
             codes_list = [int(c) for c in codes] if codes is not None else []
             has_curve = (int(MplPath.CURVE4) in codes_list) or (int(MplPath.CURVE3) in codes_list)
-            fc_hex, fc_alpha = rgba_to_hex(rgbFace)
-            ec_hex, ec_alpha = rgba_to_hex(gc.get_rgb())
+            fc_hex, _ = rgba_to_hex(rgbFace)
+            fc_alpha = _effective_face_alpha(gc, rgbFace) if fc_hex != "none" else 0.0
+            if fc_alpha == 0.0:
+                fc_hex = "none"
+            ec_hex, ec_alpha = rgba_to_hex(gc.get_rgb())   # gc rgb already carries a forced alpha
             lw_pt = round(float(gc.get_linewidth()), 3)
             if lw_pt == 0.0:
                 ec_hex, ec_alpha = "none", 0.0
@@ -164,7 +184,7 @@ class RecordingRendererProxy:
             self.events.append({
                 "kind": "path",
                 "paint_index": self._paint_index,
-                "groups": list(self._group_stack), "group_ids": list(self._group_ids),
+                "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(),
                 "bbox_norm_tl": bb_tl,
                 "width_px": round(x1 - x0, 2),
                 "height_px": round(y1 - y0, 2),
@@ -210,9 +230,10 @@ class RecordingRendererProxy:
         rot_y = [y_bl + lx * sa + ly * ca for lx, ly in local_corners]
         bb_tl = bbox_bl_to_norm_tl(min(rot_x), min(rot_y), max(rot_x), max(rot_y), self._fig_w, self._fig_h)
 
-        col_hex, alpha = rgba_to_hex(gc.get_rgb())
-        if gc.get_forced_alpha():
-            alpha = round(float(gc.get_alpha()), 4)
+        # The colour is kept even when fully transparent (alpha is compared separately; "none" would hide it).
+        rgba = [float(v) for v in gc.get_rgb()]
+        col_hex = mcolors.to_hex(rgba[:3])
+        alpha = round(rgba[3] if len(rgba) >= 4 else 1.0, 4)   # gc rgb already carries a forced alpha
         resolved_font = fontManager.findfont(prop)
         clip_rect = gc.get_clip_rectangle()
         clip_tl = (
@@ -234,7 +255,7 @@ class RecordingRendererProxy:
         self.events.append({
             "kind": "text",
             "paint_index": self._paint_index,
-            "groups": list(self._group_stack), "group_ids": list(self._group_ids),
+            "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(),
             "text": str(s),
             "x_norm": xn,
             "y_norm": yn,
@@ -244,6 +265,8 @@ class RecordingRendererProxy:
             "height_pt": round(float(h_px) * 72.0 / self._dpi, 3),
             "descent_pt": round(float(d_px) * 72.0 / self._dpi, 3),
             "bbox_norm_tl": bb_tl,
+            # the rotated text rectangle (baseline-left, baseline-right, top-right, top-left) in norm_tl coords
+            "quad_norm_tl": [list(point_bl_to_norm_tl(x, y, self._fig_w, self._fig_h)) for x, y in zip(rot_x, rot_y)],
             "color_hex": col_hex,
             "alpha": alpha,
             "fontsize_pt": round(float(prop.get_size_in_points()), 3),
@@ -280,7 +303,7 @@ def _draw_image(self, gc, x, y, im, transform=None):
     self.events.append({
         "kind": "image",
         "paint_index": self._paint_index,
-        "groups": list(self._group_stack), "group_ids": list(self._group_ids),
+        "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(),
         "bbox_norm_tl": bb,
         "w_px": w_px,
         "h_px": h_px,
@@ -307,7 +330,7 @@ def _route_recorder(route: str):
         self.events.append({
             "kind": route,
             "paint_index": self._paint_index,
-            "groups": list(self._group_stack), "group_ids": list(self._group_ids),
+            "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(),
             "clip_bbox_norm_tl": (bbox_bl_to_norm_tl(clip.x0, clip.y0, clip.x1, clip.y1, self._fig_w, self._fig_h)
                                   if clip is not None else None),
         })
@@ -316,18 +339,61 @@ def _route_recorder(route: str):
     return method
 
 
-for _route in ("draw_path_collection", "draw_markers", "draw_gouraud_triangles", "draw_quad_mesh"):
+for _route in ("draw_path_collection", "draw_markers", "draw_gouraud_triangles", "draw_quad_mesh", "draw_tex"):
     setattr(RecordingRendererProxy, _route, _route_recorder(_route))
 
 
-def record(fig) -> dict[str, Any]:
-    """Draw `fig` through the recording proxy. Returns raw events + canvas/panel geometry."""
+def is_port_module(module: str, package: str) -> bool:
+    """True if a class defined in `module` belongs to the port package `package`."""
+    return bool(package) and (module == package or module.startswith(package + "."))
+
+
+def top_level_artists(fig) -> list[tuple[Any, str]]:
+    """(artist, parent) for every top-level artist: each child of each Axes, and each non-Axes Figure child."""
+    from matplotlib.axes import Axes
+    out = [(a, "figure") for a in fig.get_children() if not isinstance(a, Axes)]
+    for ax in fig.axes:
+        out += [(a, "axes") for a in ax.get_children()]
+    return out
+
+
+def record(fig) -> tuple[dict[str, Any], np.ndarray]:
+    """Draw `fig` ONCE through the recording proxy on its Agg renderer.
+
+    Returns (observations, RGBA buffer of that same draw). The caller saves the PNG from the buffer, so the
+    image and the observations come from one draw. A preceding `fig.canvas.draw()` must have finalized layout.
+    """
     t0 = time.perf_counter()
-    fig.canvas.draw()  # first draw lets plotnine's layout engine finalize positions
     base = fig.canvas.get_renderer()
     fig_w, fig_h = fig.canvas.get_width_height()
     proxy = RecordingRendererProxy(base, fig_w, fig_h, float(fig.dpi))
-    fig.draw(proxy)
+    owners: list[dict[str, Any]] = []
+    wrapped = []
+    for artist, parent in top_level_artists(fig):
+        k = len(owners)
+        cls = type(artist)
+        owners.append({"class": f"{cls.__module__}.{cls.__qualname__}", "module": cls.__module__, "parent": parent})
+        orig = artist.draw
+
+        def draw(renderer, *a, _orig=orig, _k=k, **kw):
+            proxy.owner_stack.append(_k)
+            try:
+                return _orig(renderer, *a, **kw)
+            finally:
+                proxy.owner_stack.pop()
+
+        wrapped.append((artist, "draw" in vars(artist), orig))
+        artist.draw = draw
+    try:
+        base.clear()                       # what FigureCanvasAgg.draw does before drawing
+        fig.draw(proxy)
+    finally:
+        for artist, had, orig in wrapped:
+            if had:
+                artist.draw = orig
+            else:
+                del artist.draw
+    rgba = np.asarray(base.buffer_rgba()).copy()
     panels = []
     for ax in fig.axes:
         bb = ax.bbox
@@ -336,7 +402,8 @@ def record(fig) -> dict[str, Any]:
         "figure_px": [int(fig_w), int(fig_h)],
         "dpi": float(fig.dpi),
         "panels_norm_tl": panels,
+        "owners": owners,
         "events": proxy.events,
         "groups_seen": sorted(set(proxy.groups_seen)),
         "extraction_ms": round((time.perf_counter() - t0) * 1000, 2),
-    }
+    }, rgba

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from .project import UsageError
+
 TEMPLATE = """---
 id: {id}
 expect: {{components: 1, measurable: true}}
@@ -31,9 +33,9 @@ ggplot(df, aes("x", "y", label="label")) + geom_richtext() + xlim(0, 1) + ylim(0
 def new_case(lib, relpath: str, package: str = "") -> str:
     folder, _, case_id = relpath.rpartition("/")
     if not re.fullmatch(r"[a-z0-9_]+", case_id) or (folder and not re.fullmatch(r"[a-z0-9_/]+", folder)):
-        raise FileExistsError("use <feature_folder>/<case_id> with lowercase letters, digits and underscores")
+        raise UsageError("use <feature_folder>/<case_id> with lowercase letters, digits and underscores")
     if case_id in lib.cases():
-        raise FileExistsError(f"case id {case_id!r} already exists in {lib.root}")
+        raise UsageError(f"case id {case_id!r} already exists in {lib.root}")
     path = lib.root / f"{relpath}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(TEMPLATE.format(id=case_id, tag=f" {package}" if package else ""))

@@ -3,7 +3,7 @@
     PYTHONPATH=<port parent>:<plotparity/src> python -m plotparity.engines.python.worker job.json
 
 For each case: reset matplotlib/plotnine state, BUILD the plot from the case's python block, DRAW it
-(PNG + draw-call recording). Writes <out>/<case>/{candidate.png, observations.json} or error.json.
+(one recorded draw gives both the PNG and the draw-call observations). Writes <out>/<case>/{candidate.png, observations.json} or error.json.
 
 Error attribution (DESIGN §4):
   ModuleNotFoundError for a non-port module / import check failure  -> environment_error
@@ -100,7 +100,11 @@ def build_plot(code: str, data: dict | None, port, fname: str):
     return eval(compile(last, fname, "eval"), ns)
 
 
-def draw_plot(p, png: Path, dpi: int, width_px: int, height_px: int):
+def draw_plot(p, png: Path, dpi: int, width_px: int, height_px: int, package: str = ""):
+    """Layout draw, then ONE recorded draw whose Agg buffer is saved as the PNG (image == observations).
+    Then a diagnostic draw with the port's top-level artists hidden: `port_ink_px` counts panel pixels the
+    port's artists changed (used when the adapter finds no components: ink → extractor blind, none → fail)."""
+    import matplotlib.image as mimage
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_agg import FigureCanvasAgg
 
@@ -111,11 +115,38 @@ def draw_plot(p, png: Path, dpi: int, width_px: int, height_px: int):
         FigureCanvasAgg(fig)
     fig.set_dpi(dpi)
     fig.set_size_inches(width_px / dpi, height_px / dpi)
-    fig.canvas.draw()
-    fig.savefig(png, dpi=dpi, format="png")
-    obs = record(fig)
+    fig.canvas.draw()                      # lets plotnine's layout engine finalize positions
+    obs, rgba = record(fig)
+    mimage.imsave(png, rgba, format="png", dpi=dpi)
+    obs["port_ink_px"] = _port_ink(fig, package, rgba, obs)
     plt.close(fig)
     return obs
+
+
+def _port_ink(fig, package: str, rgba, obs: dict) -> int | None:
+    """Panel pixels that differ when the port's top-level artists are hidden (None: no panel)."""
+    import numpy as np
+
+    from plotparity.engines.python.probe import is_port_module, top_level_artists
+
+    if not obs["panels_norm_tl"]:
+        return None
+    mine = [a for a, _ in top_level_artists(fig) if is_port_module(type(a).__module__, package) and a.get_visible()]
+    if not mine:
+        return 0
+    for a in mine:
+        a.set_visible(False)
+    try:
+        fig.canvas.draw()
+        other = np.asarray(fig.canvas.buffer_rgba())[..., :3].astype(int)
+    finally:
+        for a in mine:
+            a.set_visible(True)
+    h, w = rgba.shape[:2]
+    x0, y0, x1, y1 = obs["panels_norm_tl"][0]
+    rows = slice(max(0, int(y0 * h)), min(h, int(np.ceil(y1 * h))))
+    cols = slice(max(0, int(x0 * w)), min(w, int(np.ceil(x1 * w))))
+    return int((np.abs(rgba[rows, cols, :3].astype(int) - other[rows, cols]).max(axis=-1) > 0).sum())
 
 
 def main(job_path: str) -> int:
@@ -161,7 +192,7 @@ def main(job_path: str) -> int:
             try:
                 p = build_plot(case["code"], case.get("data"), port, case["file"])
                 stage = "draw"
-                obs = draw_plot(p, cdir / "candidate.png", r["dpi"], r["width_px"], r["height_px"])
+                obs = draw_plot(p, cdir / "candidate.png", r["dpi"], r["width_px"], r["height_px"], package)
                 obs["warnings"] = sorted({f"{w.category.__name__}: {w.message}" for w in caught})[:20]
                 obs["elapsed_ms"] = round((time.perf_counter() - t0) * 1000, 1)
                 (cdir / "observations.json").write_text(json.dumps(obs))

@@ -30,7 +30,10 @@ def managed_env(requirements: list[str]) -> str:
 
     plotnine / matplotlib / pandas / pyyaml are pinned to the versions plotparity itself runs with, so the
     candidate draws with the same matplotlib (and the same DejaVu TTFs) the references were checked against.
+    Readers trust an env only once `.complete` exists; it is written after the env is built and imports work.
+    Builders hold an exclusive lock, so concurrent runs never delete or half-build each other's env.
     """
+    import fcntl
     import hashlib
     from importlib.metadata import version
 
@@ -45,10 +48,16 @@ def managed_env(requirements: list[str]) -> str:
     uv = shutil.which("uv")
     if not uv:
         raise RuntimeError("[candidate] requirements needs `uv` on PATH (https://docs.astral.sh/uv/)")
-    shutil.rmtree(env_dir, ignore_errors=True)
-    subprocess.run([uv, "venv", "-q", "--python", py, str(env_dir)], check=True)
-    subprocess.run([uv, "pip", "install", "-q", "--python", str(exe), *reqs], check=True)
-    (env_dir / ".complete").write_text("\n".join(reqs) + "\n")
+    env_dir.parent.mkdir(parents=True, exist_ok=True)
+    with open(env_dir.parent / f"{key}.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if exe.exists() and (env_dir / ".complete").exists():      # another run finished it while we waited
+            return str(exe)
+        shutil.rmtree(env_dir, ignore_errors=True)                   # incomplete leftovers are never reused
+        subprocess.run([uv, "venv", "-q", "--python", py, str(env_dir)], check=True)
+        subprocess.run([uv, "pip", "install", "-q", "--python", str(exe), *reqs], check=True)
+        subprocess.run([str(exe), "-c", "import plotnine, matplotlib, pandas, numpy, yaml"], check=True)
+        (env_dir / ".complete").write_text("\n".join(reqs) + "\n")
     return str(exe)
 
 

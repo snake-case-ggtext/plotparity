@@ -137,7 +137,8 @@ def test_profile_rejects_unknown_check():
 
 
 def _run(text, color="#000000", weight="normal"):
-    return {"text": text, "color_hex": color, "fontweight": weight, "fontstyle": "normal", "fontsize_pt": 11.0}
+    return {"text": text, "color_hex": color, "alpha": 1.0, "fontweight": weight, "fontstyle": "normal",
+            "fontsize_pt": 11.0}
 
 
 def test_run_alignment_by_text_not_index():
@@ -176,17 +177,31 @@ def test_unassigned_candidate_drawing_fails_closed(tmp_path):
     obs = json.loads((tmp_path / "out" / "render" / "richtext_example_markup" / "observations.json").read_text())
     rich = next(e for e in obs["events"] if e["kind"] == "text" and "richtext" in e["groups"])
     obs["events"].append({"kind": "draw_markers", "paint_index": 9999, "groups": rich["groups"],
-                          "group_ids": rich["group_ids"], "clip_bbox_norm_tl": None})
-    res = evaluate_case(_Case(), ADAPTER, _profile(), [], _ref_obs(), {"observations": obs})
+                          "group_ids": rich["group_ids"], "owner": rich["owner"], "clip_bbox_norm_tl": None})
+    res = evaluate_case(_Case(), ADAPTER, _profile(), [], _ref_obs(), {"observations": obs}, package="plotnine_ggtext")
     assert res["status"] == "fail"
     assert any(f["check"] == "unexpected_drawing" for f in res["findings"])
 
 
-def test_empty_candidate_is_a_fail_not_unmeasured():
-    obs = {"events": [], "figure_px": [640, 480], "dpi": 72.0, "panels_norm_tl": [[0.1, 0.1, 0.9, 0.9]]}
-    res = evaluate_case(_Case(), ADAPTER, _profile(), [], _ref_obs(), {"observations": obs})
+def _empty_obs(port_ink_px):
+    return {"events": [], "owners": [], "figure_px": [640, 480], "dpi": 72.0, "panels_norm_tl": [[0.1, 0.1, 0.9, 0.9]],
+            "port_ink_px": port_ink_px}
+
+
+def test_empty_candidate_without_port_ink_is_a_fail():
+    res = evaluate_case(_Case(), ADAPTER, _profile(), [], _ref_obs(), {"observations": _empty_obs(0)},
+                        package="plotnine_ggtext")
     assert res["status"] == "fail"
     assert {"component_count", "missing_component"} <= {f["check"] for f in res["findings"]}
+
+
+def test_empty_candidate_with_port_ink_is_extractor_blind():
+    """The port's artists changed panel pixels but nothing was extracted: unmeasured, never pass, not blamed on the port."""
+    for ink in (37, None):                              # None: the worker could not measure it -> also unmeasured
+        res = evaluate_case(_Case(), ADAPTER, _profile(), [], _ref_obs(), {"observations": _empty_obs(ink)},
+                            package="plotnine_ggtext")
+        assert res["status"] == "unmeasured"
+        assert [f["check"] for f in res["findings"]] == ["extractor_blind"]
 
 
 # ---------- references ----------
@@ -253,3 +268,13 @@ def test_git_port_resolves_pinned_tag(tmp_path, monkeypatch):
     assert port.commit and port.dirty is False
     with pytest.raises(ports.PortError):
         ports.resolve("git+file://nowhere", "pkg", tmp_path)
+
+
+def test_insets_use_the_library_canvas_not_a_constant():
+    """A 1280x960 canvas must give twice the pt insets of 640x480 for the same normalized geometry."""
+    from plotparity.adapters.ggtext.adapter import _text_insets
+    rect = {"bbox_norm_tl": [0.4, 0.4, 0.6, 0.5], "unrotated_width_pt": 128.0, "unrotated_height_pt": 48.0}
+    runs = [{"x_norm": 0.41, "y_norm": 0.46, "fontsize_pt": 11.0}]
+    small = _text_insets(rect, runs, 0.0, (640.0, 480.0))
+    big = _text_insets({**rect, "unrotated_width_pt": 256.0, "unrotated_height_pt": 96.0}, runs, 0.0, (1280.0, 960.0))
+    assert all(abs(big[k] - 2 * small[k]) < 1e-6 for k in small)

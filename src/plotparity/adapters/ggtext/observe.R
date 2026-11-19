@@ -1,8 +1,10 @@
 # ggtext adapter: R-side observation hooks (sourced by engines/r/render.R).
 #   adapter_setup(family)              : geom defaults that theme base_family does NOT reach
 #   adapter_observe(p, w_in, h_in, dpi): list of observation streams for one plot
-# extract_r_grob_semantics() is the research Probe 2D (experiment/render_r.R), unchanged except that
-# colours are resolved to hex with R's own col2rgb (R names like "red3"/"grey40" are unknown to matplotlib).
+# extract_r_grob_semantics() is the research Probe 2D (experiment/render_r.R), except that colours are resolved
+# to hex with R's own col2rgb (R names like "red3"/"grey40" are unknown to matplotlib), sizes are in bigpts
+# (1/72 in, matplotlib's pt), and gpar alpha is recorded for frames and text, multiplied down the grob tree
+# (grid multiplies a parent's alpha into its children's).
 
 adapter_setup <- function(family) {
   # theme_grey(base_family=) does NOT affect geom_richtext/geom_textbox default_aes$family.
@@ -65,10 +67,12 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
   box_idx <- 0
 
   # Helper to walk a gTree while pushing its viewports so deviceLoc is accurate
-  walk_grob <- function(gr, inherited_angle = 0) {
+  gp_alpha <- function(gp) if (is.null(gp) || is.null(gp$alpha) || is.na(gp$alpha[1])) 1.0 else as.numeric(gp$alpha[1])
+  walk_grob <- function(gr, inherited_angle = 0, inherited_alpha = 1.0) {
     if (is.null(gr)) return()
     pushed <- FALSE
     cur_angle <- inherited_angle
+    cur_alpha <- inherited_alpha * gp_alpha(gr$gp)
     if (!is.null(gr$vp)) {
       pushViewport(gr$vp)
       pushed <- TRUE
@@ -99,9 +103,9 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
           if (inherits(ch, "roundrect")) {
             x0_u <- ch$x - ch$hjust * ch$width
             y0_u <- ch$y - ch$vjust * ch$height
-            w_pt <- convertWidth(ch$width, "pt", valueOnly = TRUE)
-            h_pt <- convertHeight(ch$height, "pt", valueOnly = TRUE)
-            r_pt <- convertUnit(ch$r, "pt", valueOnly = TRUE)
+            w_pt <- convertWidth(ch$width, "bigpts", valueOnly = TRUE)
+            h_pt <- convertHeight(ch$height, "bigpts", valueOnly = TRUE)
+            r_pt <- convertUnit(ch$r, "bigpts", valueOnly = TRUE)
             c_bl <- to_norm_tl(x0_u, y0_u)
             c_br <- to_norm_tl(x0_u + ch$width, y0_u)
             c_tr <- to_norm_tl(x0_u + ch$width, y0_u + ch$height)
@@ -117,6 +121,7 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
               vertex_count = NA,
               col = r_hex(ch$gp$col, "none"),
               fill = r_hex(ch$gp$fill, "none"),
+              alpha = cur_alpha * gp_alpha(ch$gp),
               lwd = if (is.null(ch$gp$lwd)) NA else as.numeric(ch$gp$lwd),
               bbox_norm_tl = c(min(xs), min(ys), max(xs), max(ys))
             )
@@ -125,8 +130,8 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
             # 4 vertices => sharp corners, >6 => rounded
             ch_pushed <- FALSE
             if (!is.null(ch$vp)) { pushViewport(ch$vp); ch_pushed <- TRUE }
-            x_loc <- convertX(ch$x, "pt", valueOnly = TRUE)
-            y_loc <- convertY(ch$y, "pt", valueOnly = TRUE)
+            x_loc <- convertX(ch$x, "bigpts", valueOnly = TRUE)
+            y_loc <- convertY(ch$y, "bigpts", valueOnly = TRUE)
             loc <- deviceLoc(ch$x, ch$y, valueOnly = TRUE)
             if (ch_pushed) popViewport()
             xs <- loc$x / width_in
@@ -142,6 +147,7 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
               is_rounded = n_verts > 6,
               col = r_hex(ch$gp$col, "none"),
               fill = r_hex(ch$gp$fill, "none"),
+              alpha = cur_alpha * gp_alpha(ch$gp),
               lwd = if (is.null(ch$gp$lwd)) NA else as.numeric(ch$gp$lwd),
               bbox_norm_tl = c(round(min(xs), 5), round(min(ys), 5),
                                round(max(xs), 5), round(max(ys), 5))
@@ -152,8 +158,8 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
               ch_pushed <- FALSE
               if (!is.null(ch$vp)) { pushViewport(ch$vp); ch_pushed <- TRUE }
               pos <- to_norm_tl(ch$x, ch$y)
-              x_lpt <- round(convertX(ch$x, "pt", valueOnly = TRUE), 3)
-              y_lpt <- round(convertY(ch$y, "pt", valueOnly = TRUE), 3)
+              x_lpt <- round(convertX(ch$x, "bigpts", valueOnly = TRUE), 3)
+              y_lpt <- round(convertY(ch$y, "bigpts", valueOnly = TRUE), 3)
               if (ch_pushed) popViewport()
               font_code <- if (is.null(ch$gp$font)) 1 else as.integer(ch$gp$font)
               weight <- if (font_code %in% c(2, 4)) "bold" else "normal"
@@ -161,7 +167,7 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
               col_val <- r_hex(ch$gp$col, "#000000")
               fs <- if (is.null(ch$gp$fontsize)) NA else as.numeric(ch$gp$fontsize)
               fam <- if (is.null(ch$gp$fontfamily)) "" else as.character(ch$gp$fontfamily)
-              alpha_val <- if (is.null(ch$gp$alpha) || is.na(ch$gp$alpha)) 1.0 else as.numeric(ch$gp$alpha)
+              alpha_val <- cur_alpha * gp_alpha(ch$gp)
               text_runs[[length(text_runs) + 1]] <- list(
                 text = lbl,
                 x_norm = pos$x_norm,
@@ -191,7 +197,7 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
       }
 
       for (ch in gr$children) {
-        walk_grob(ch, cur_angle)
+        walk_grob(ch, cur_angle, cur_alpha)
       }
     }
   }

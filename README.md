@@ -6,7 +6,7 @@ plotparity answers that for ggplot2 extensions ported to [plotnine](https://plot
 
 For example, it caught a Python port of ggtext that didn't recognise R's colour name `red3`: the port drew the word in black and raised no error. Comparing screenshots wouldn't have caught it, because an R plot and a Python plot never match pixel for pixel anyway.
 
-It's built for **coding agents porting an extension**: fast feedback (a few seconds), findings that say what to fix, and checks that are hard to game. It works just as well for a human.
+It's built for **coding agents porting an extension**: fast feedback (a few seconds), and findings that say what to fix. It works just as well for a human. A pass has a precise meaning: **the selected gating checks passed for the selected measurable cases.** It isn't a claim that the two plots look identical; see [what is (not yet) checked](#what-is-not-yet-checked).
 
 ---
 
@@ -31,7 +31,7 @@ uvx --from git+https://github.com/snake-case-ggtext/plotparity plotparity run pr
 Among its findings is that `red3` example:
 
 ```
-## markup/coverage_r_colour_names: FAIL (2 findings)
+## markup/r_colour_names: FAIL (2 findings)
   1. [style] box[1:'R colours red3 grey40 st']/run[2:'red3'] :: text_color  expected #cd0000 → observed #000000
        Span 'red3' rendered with color #000000 instead of #cd0000 (ΔE=42.17).
 ```
@@ -76,11 +76,11 @@ plotparity-examples/
 
 ## What a case looks like
 
-A case is one Markdown file. Here's [a real one](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/markup/coverage_r_colour_names.md), trimmed:
+A case is one Markdown file. Here's [a real one](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/markup/r_colour_names.md), trimmed:
 
 ````markdown
 ---
-id: coverage_r_colour_names
+id: r_colour_names
 expect: {components: 1, frame: true, measurable: true}
 data:
   label: R colours <span style='color:red3'>red3</span> <span style='color:grey40'>grey40</span>
@@ -88,7 +88,7 @@ data:
   y: 0.5
 ---
 
-# coverage_r_colour_names
+# r_colour_names
 
 R colour names (`red3`, `grey40`) in span CSS.
 
@@ -113,9 +113,30 @@ Reading it top to bottom:
 - **The `r` block is the spec.** Its render is the expected answer.
 - **Each `python` block is tagged with the port it's written for.** Ports have different APIs, so each one gets its own translation of the same plot. A port with no block for a case reports `needs_translation`, rather than silently skipping it.
 
-For richer examples, see [a rotated-box case](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/geom_textbox/textbox_rotated_alignments.md), whose second port uses different units and margin conventions, and [a theme-element case](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/elements/coverage_element_markdown_title.md).
+For richer examples, see [a rotated-box case](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/geom_textbox/textbox_rotated_alignments.md), whose second port uses different units and margin conventions, and [a theme-element case](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/elements/element_markdown_title.md).
 
 To add your own, follow **[Writing cases](docs/writing-cases.md)**. It covers how to scaffold a case, render its R reference, validate it, and generate a matched set of variants.
+
+## What is (not yet) checked
+
+For each component R draws (for ggtext: each rich-text box), plotparity checks the port's matching component:
+
+- **what is drawn:** the words and their order, no leaked markup (`**`, `<span>`, `~sub~`), the number of boxes;
+- **how text looks:** colour, opacity, weight, style, size, superscript/subscript offsets;
+- **that text is visible:** not clipped away, and actually showing ink in your PNG;
+- **layout:** rotation, placement, box size, padding, line count (where lines wrap is advisory), overflow;
+- **frames:** fill and outline colour and opacity, rounded corners;
+- **nothing extra:** every draw call your port's own artists make must belong to a component. Other layers (plotnine's `geom_point`, axes, grid) are allowed and counted.
+
+Not checked yet:
+
+- theme elements: titles, axis labels, strips and legend text (`element_markdown`, `element_textbox`). These cases report `unmeasured`;
+- the content of `<img>` images;
+- facets and multiple panels (only the first panel is read);
+- legends and legend keys a port draws (they belong to plotnine's legend);
+- plain matplotlib artists a port adds straight to the axes (e.g. `ax.text`): they're compared if they form components, but extra drawing by them isn't flagged;
+- drawing that bypasses matplotlib's renderer (agg filters, writing to the canvas buffer);
+- glyph shapes and kerning, outline width and dashes, stacking order against other layers.
 
 ## Common tasks
 

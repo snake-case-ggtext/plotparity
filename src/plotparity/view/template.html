@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parity Report</title>
+<style>
+:root{
+  --bg:#f4f3ef; --surface:#fff; --surface-2:#f9f8f5; --ink:#1c1b19; --ink-2:#55534d; --ink-3:#8c897f; --line:#e4e1d8; --line-2:#d2cec3;
+  --accent:#2f5bd3; --accent-soft:#e5ecfb;
+  --pass:#18794e; --pass-soft:#dcf1e6; --fail:#c2391b; --fail-soft:#fbe2da; --unm:#9a6a00; --unm-soft:#f8ecd2;
+  --infra:#7a4bc2; --infra-soft:#ece3fa; --known:#6b6862; --known-soft:#ecebe7;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace; --sans: -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",system-ui,sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#141412; --surface:#1c1c19; --surface-2:#22221f; --ink:#ebeae4; --ink-2:#b3b0a7; --ink-3:#7d7a72; --line:#2e2d29; --line-2:#3d3c37;
+  --accent:#7d9cf0; --accent-soft:#222b42; --pass:#4cc497; --pass-soft:#163629; --fail:#f07a5e; --fail-soft:#3e211a;
+  --unm:#e2ad48; --unm-soft:#3a2d14; --infra:#b896f0; --infra-soft:#2c2340; --known:#a8a59d; --known-soft:#2a2a26; color-scheme: dark; } }
+:root[data-theme="dark"]{
+  --bg:#141412; --surface:#1c1c19; --surface-2:#22221f; --ink:#ebeae4; --ink-2:#b3b0a7; --ink-3:#7d7a72; --line:#2e2d29; --line-2:#3d3c37;
+  --accent:#7d9cf0; --accent-soft:#222b42; --pass:#4cc497; --pass-soft:#163629; --fail:#f07a5e; --fail-soft:#3e211a;
+  --unm:#e2ad48; --unm-soft:#3a2d14; --infra:#b896f0; --infra-soft:#2c2340; --known:#a8a59d; --known-soft:#2a2a26; color-scheme: dark; }
+*{box-sizing:border-box} html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+code,.mono{font-family:var(--mono);font-size:.9em}
+button{font:inherit;color:inherit;cursor:pointer}
+.faint{color:var(--ink-3)} .muted{color:var(--ink-2)}
+
+/* header */
+header{background:var(--surface);border-bottom:1px solid var(--line);padding:14px 20px 12px;display:flex;gap:24px;align-items:center;flex-wrap:wrap}
+.hd-title{min-width:260px;flex:1}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.verdict{font-size:20px;font-weight:700;letter-spacing:-.01em;margin-top:2px}
+.verdict .n{font-variant-numeric:tabular-nums}
+.sub{font-size:12.5px;color:var(--ink-2);margin-top:2px}
+.sub code{background:var(--surface-2);border:1px solid var(--line);padding:0 5px;border-radius:4px}
+.statbar{display:flex;height:8px;border-radius:4px;overflow:hidden;width:260px;background:var(--line)}
+.statbar i{display:block;height:100%}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--ink-2);margin-top:6px;flex-wrap:wrap}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.runtabs{display:flex;gap:6px;flex-wrap:wrap}
+.runtabs button{border:1px solid var(--line-2);background:var(--surface);border-radius:8px;padding:5px 10px;font-size:12.5px;text-align:left}
+.runtabs button[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-soft)}
+.runtabs b{display:block;font-size:12.5px}
+.iconbtn{border:1px solid var(--line-2);background:var(--surface);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--ink-2)}
+
+/* layout */
+.wrap{flex:1;display:flex;min-height:0}
+aside{width:300px;flex:none;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;min-height:0}
+.side-tools{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.side-tools input{width:100%;padding:6px 9px;border:1px solid var(--line-2);border-radius:7px;background:var(--surface-2);color:var(--ink);font:inherit;font-size:13px}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chips button{border:1px solid var(--line-2);background:var(--surface);border-radius:999px;padding:2px 9px;font-size:12px;color:var(--ink-2)}
+.chips button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.caselist{overflow:auto;flex:1;padding:6px 0 20px}
+.grp{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);padding:12px 14px 4px;display:flex;justify-content:space-between}
+.row{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;padding:6px 14px;cursor:pointer;border-left:3px solid transparent}
+.row:hover{background:var(--surface-2)}
+.row.sel{background:var(--accent-soft);border-left-color:var(--accent)}
+.row .nm{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .fd{font-size:11px;color:var(--ink-3)}
+.row .cnt{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.dots{display:flex;gap:3px}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;display:inline-block}
+.st-pass{background:var(--pass)} .st-fail{background:var(--fail)} .st-unmeasured{background:var(--unm)} .st-infrastructure_error{background:var(--infra)} .st-none{background:var(--line-2)}
+main{flex:1;overflow:auto;min-width:0}
+.inner{max-width:1280px;margin:0 auto;padding:18px 24px 60px}
+
+/* case header */
+.chead{display:flex;align-items:flex-start;gap:16px;justify-content:space-between;flex-wrap:wrap}
+.chead h1{font-size:22px;margin:0;letter-spacing:-.01em;line-height:1.25}
+.chead .path{font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.why{color:var(--ink-2);margin:6px 0 0;max-width:900px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 10px 2px 7px;border-radius:999px;white-space:nowrap}
+.p-pass{background:var(--pass-soft);color:var(--pass)} .p-fail{background:var(--fail-soft);color:var(--fail)}
+.p-unmeasured{background:var(--unm-soft);color:var(--unm)} .p-infrastructure_error{background:var(--infra-soft);color:var(--infra)}
+.p-split{background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line);font-weight:500}
+.navbtns{display:flex;gap:6px}
+details.code{margin-top:10px}
+details.code summary{cursor:pointer;font-size:12.5px;color:var(--ink-2)}
+.codegrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+@media (max-width:900px){.codegrid{grid-template-columns:1fr}}
+.codegrid pre{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow:auto;font:12px/1.5 var(--mono);white-space:pre}
+.codegrid .lab{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px}
+
+/* viewer */
+.viewer{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px 12px;position:sticky;top:0;z-index:5;box-shadow:0 6px 16px -12px #0006}
+.vbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:10px}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;padding:5px 11px;font-size:12.5px;color:var(--ink-2)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.seg button[aria-pressed="true"] kbd{background:transparent;border-color:currentColor;color:inherit}
+.seg button kbd{font-family:var(--mono);font-size:10px;opacity:.6;margin-left:4px}
+.toggle{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);user-select:none;cursor:pointer}
+.hint{margin-left:auto;font-size:11.5px;color:var(--ink-3)}
+.panes{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.panes.one{grid-template-columns:minmax(0,860px);justify-content:center}
+@media (max-width:860px){.panes{grid-template-columns:1fr}}
+.cap{display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px;gap:8px}
+.cap b{font-weight:600}
+.stage{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:zoom-in;display:flex;justify-content:center}
+.stage .inner2{position:relative;transform-origin:50% 50%;display:inline-block;line-height:0}
+.stage img{display:block;max-width:100%;max-height:44vh;width:auto;height:auto;user-select:none;-webkit-user-drag:none}
+.stage .top img{width:100%;height:100%;max-height:none}
+.stage .top{position:absolute;inset:0}
+.stage.zoomed img{image-rendering:pixelated}
+.stage svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.stage.diff .inner2{filter:invert(1)}
+.stage.diff .top{mix-blend-mode:difference}
+.stage.diff svg{filter:invert(1)}
+.badge{position:absolute;top:8px;left:8px;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:5px;background:#000c;color:#fff;pointer-events:none;letter-spacing:.02em}
+.badge.port{background:var(--accent)}
+.swline{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);pointer-events:none}
+input[type=range]{width:100%;accent-color:var(--accent);margin-top:8px}
+.empty-img{display:flex;align-items:center;justify-content:center;aspect-ratio:4/3;color:var(--ink-3);font-size:13px;background:var(--surface-2)}
+
+/* findings */
+.fsec{margin-top:18px}
+.fsec h2{font-size:15px;margin:0 0 8px;display:flex;gap:10px;align-items:baseline}
+.tier{margin-top:12px}
+.tier h3{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);margin:0 0 6px;font-weight:700}
+.f{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;padding:8px 12px;background:var(--surface);border:1px solid var(--line);border-radius:9px;margin-bottom:6px;cursor:pointer}
+.f:hover{border-color:var(--line-2)}
+.f.sel{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.f .mk{width:10px;height:10px;border-radius:3px}
+.f .chk{font-family:var(--mono);font-size:12.5px;font-weight:600}
+.f .cmp{font-size:12.5px;color:var(--ink-2)}
+.f .msg{font-size:13px;margin-top:2px}
+.f .eo{font-family:var(--mono);font-size:12px;display:flex;gap:8px;align-items:center;justify-content:flex-end;white-space:nowrap}
+.f .eo .lbl{font-family:var(--sans);font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
+.sw{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid var(--line-2);vertical-align:-2px}
+.f.known{opacity:.75} .f.known .mk{background:var(--known)}
+.f.unm .mk{background:var(--unm)} .f.fail .mk{background:var(--fail)} .f.infra .mk{background:var(--infra)} .f.info .mk{background:var(--line-2)}
+.note{font-size:12.5px;color:var(--ink-2);background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--unm);padding:9px 12px;border-radius:0 8px 8px 0;margin-top:8px}
+.ok{font-size:13.5px;color:var(--pass);background:var(--pass-soft);padding:10px 12px;border-radius:9px}
+pre.tb{font:11.5px/1.45 var(--mono);background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:8px;overflow:auto;max-height:240px;margin:6px 0 0;white-space:pre-wrap}
+
+/* overview matrix */
+.ov h1{font-size:22px;margin:0 0 4px}
+table.mx{border-collapse:separate;border-spacing:0;margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.mx th,.mx td{padding:7px 12px;border-bottom:1px solid var(--line);font-size:13px;text-align:left}
+.mx th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);font-weight:700;background:var(--surface-2)}
+.mx td.c{text-align:center;cursor:pointer} .mx td.c:hover{background:var(--accent-soft)}
+.mx tr:last-child td{border-bottom:0}
+kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--surface)}
+.keys{font-size:11.5px;color:var(--ink-3);padding:10px 14px;border-top:1px solid var(--line);line-height:1.9}
+</style>
+</head>
+<body>
+<header id="hdr"></header>
+<div class="wrap">
+  <aside>
+    <div class="side-tools">
+      <input id="q" placeholder="Filter cases…  (/)" autocomplete="off">
+      <div class="chips" id="fchips"></div>
+    </div>
+    <div class="caselist" id="list"></div>
+    <div class="keys"><kbd>j</kbd><kbd>k</kbd> case · <kbd>[</kbd><kbd>]</kbd> finding · <kbd>s</kbd> side · <kbd>b</kbd> blink · <kbd>w</kbd> swipe · <kbd>d</kbd> diff · <kbd>space</kbd> hold to swap · <kbd>z</kbd> zoom · <kbd>o</kbd> outlines · <kbd>esc</kbd> clear</div>
+  </aside>
+  <main><div class="inner" id="main"></div></main>
+</div>
+<script>
+const D = /*__DATA__*/null;
+const IMG = /*__IMAGES__*/null;
+const $ = (s, el=document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const STATUS = {pass:"Matches R", fail:"Differs", unmeasured:"Not measured", infrastructure_error:"Error"};
+const SPLITS = ["dev","holdout","coverage"];
+const TIERS = [["inventory","Content"],["layout","Layout"],["style","Style"]];
+const S = {run:0, case:null, filter:"all", q:"", mode:"side", outlines:false, zoom:true, finding:null, overview: D.runs.length>1, swap:false, blinkT:null};
+
+/* ---------- helpers ---------- */
+const run = () => D.runs[S.run];
+const caseOf = (r, id) => r.cases.find(c => c.case === id);
+const allCaseIds = () => { const seen=[]; D.runs.forEach(r=>r.cases.forEach(c=>{ if(!seen.includes(c.case)) seen.push(c.case);})); return seen; };
+function caseStatus(c){ if(!c) return "none"; return c.status; }
+function needsTranslation(c){ return c && c.findings.some(f=>f.check==="needs_translation"); }
+function statusLabel(c){
+  if (!c) return "not run";
+  if (needsTranslation(c)) return "Needs translation";
+  if (c.status==="unmeasured" && c.findings.some(f=>f.check==="unmeasured_feature")) return "Not measurable yet";
+  return STATUS[c.status] || c.status;
+}
+const counts = r => { const k={pass:0,fail:0,unmeasured:0,infrastructure_error:0}; r.cases.forEach(c=>k[c.status]=(k[c.status]||0)+1); return k; };
+const isHex = v => typeof v==="string" && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(v);
+function fmtVal(v){
+  if (v===null || v===undefined) return '<span class="faint">—</span>';
+  if (isHex(v)) return `<span class="sw" style="background:${v}"></span> ${esc(v)}`;
+  if (typeof v==="number") return esc(Math.round(v*100)/100);
+  if (Array.isArray(v) && v.every(x=>typeof x!=="object")) { const s=v.join(" "); return esc(s.length>48? s.slice(0,46)+"…" : s); }
+  const s = typeof v==="object" ? JSON.stringify(v) : String(v); return esc(s.length>48? s.slice(0,46)+"…" : s);
+}
+function prettyComponent(comp){
+  if (!comp) return "";
+  return esc(comp).replace(/box\[(\d+):&#39;(.*?)&#39;\]/g, (m,n,t)=>`box ${n} <span class="faint">“${t}”</span>`)
+    .replace(/\/run\[(\d+):&#39;(.*?)&#39;\]/g, (m,n,t)=>` › word <b>“${t}”</b>`)
+    .replace(/\/script\[&#39;(.*?)&#39;\]/g, (m,t)=>` › script <b>“${t}”</b>`)
+    .replace(/\/(top_to_first_baseline|bottom_to_last_baseline|left|width|height)/g, (m,t)=>` › ${t.replaceAll("_"," ")}`);
+}
+function geomFor(c, comp){
+  if (!c || !c.geom || !comp) return null;
+  let best=null; for (const k of Object.keys(c.geom)) if (!k.startsWith("_") && comp.startsWith(k) && (!best || k.length>best.length)) best=k;
+  if (!best) return null;
+  const g = c.geom[best]; const m = comp.slice(best.length).match(/run\[\d+:'(.*?)'\]|script\['(.*?)'\]/);
+  return {key:best, g, word: m ? (m[1] ?? m[2]) : null};
+}
+
+/* ---------- header ---------- */
+function renderHeader(){
+  if (S.overview) {
+    const tabs = `<div class="runtabs">${[`<button data-ov="1" aria-pressed="true"><b>Overview</b><span class="faint">${D.runs.length} runs</span></button>`].concat(D.runs.map((x,i)=>`<button data-run="${i}" aria-pressed="false"><b>${esc(x.label)}</b><span class="faint">${counts(x).pass}/${x.cases.length} match</span></button>`)).join("")}</div>`;
+    $("#hdr").innerHTML = `<div class="hd-title"><div class="verdict">${D.runs.length} runs</div><div class="sub">${D.runs.map(x=>esc(x.label)).join(" · ")}</div></div>${tabs}<button class="iconbtn" id="theme" title="Toggle theme">◐</button>`;
+    return;
+  }
+  const r = run(), k = counts(r), n = r.cases.length, cand = r.candidate || {};
+  const bad = k.fail, unm = k.unmeasured + k.infrastructure_error;
+  const verdict = bad===0 && unm===0 ? `All <span class="n">${n}</span> cases match R`
+    : `<span class="n">${k.pass}</span> of <span class="n">${n}</span> cases match R` + (bad? ` · <span class="n" style="color:var(--fail)">${bad}</span> differ` : "") + (unm? ` · <span class="n" style="color:var(--unm)">${unm}</span> not measured` : "");
+  const bar = ["pass","fail","unmeasured","infrastructure_error"].map(s=>`<i class="st-${s}" style="width:${100*k[s]/n}%"></i>`).join("");
+  const src = cand.source ? `<code>${esc(String(cand.source).replace(/^git\+https:\/\/github.com\//,"").replace(/@([0-9a-f]{7})[0-9a-f]+$/,"@$1"))}</code>` : "";
+  const tabs = D.runs.length>1 ? `<div class="runtabs">${[`<button data-ov="1" aria-pressed="${S.overview}"><b>Overview</b><span class="faint">${D.runs.length} runs</span></button>`].concat(D.runs.map((x,i)=>`<button data-run="${i}" aria-pressed="${!S.overview && S.run===i}"><b>${esc(x.label)}</b><span class="faint">${counts(x).pass}/${x.cases.length} match</span></button>`)).join("")}</div>` : "";
+  $("#hdr").innerHTML = `<div class="hd-title"><div class="verdict">${verdict}</div>
+    <div class="sub">${src} · ${esc((r.created||"").replace("T"," "))} · <code>--select ${esc(r.selection)}</code></div></div>
+    <div><div class="statbar">${bar}</div><div class="legend">${["pass","fail","unmeasured","infrastructure_error"].filter(s=>k[s]).map(s=>`<span><i class="dot st-${s}"></i>${k[s]} ${({pass:"match",fail:"differ",unmeasured:"not measured",infrastructure_error:"error"})[s]}</span>`).join("")}</div></div>
+    ${tabs}<button class="iconbtn" id="theme" title="Toggle theme">◐</button>`;
+}
+
+/* ---------- sidebar ---------- */
+function renderFilters(){
+  const r = run(), k = counts(r);
+  const opts = [["all","All",r.cases.length],["fail","Differs",k.fail],["unmeasured","Not measured",k.unmeasured+k.infrastructure_error],["pass","Matches",k.pass]];
+  $("#fchips").innerHTML = opts.map(([v,l,n])=>`<button data-filter="${v}" aria-pressed="${S.filter===v}">${l} <span class="faint">${n}</span></button>`).join("");
+}
+function visibleCases(){
+  const r = run();
+  return r.cases.filter(c => {
+    if (S.q && !(c.case+" "+(c.relpath||"")).toLowerCase().includes(S.q)) return false;
+    if (S.filter==="all") return true;
+    if (S.filter==="unmeasured") return c.status==="unmeasured" || c.status==="infrastructure_error";
+    return c.status===S.filter;
+  });
+}
+function renderList(){
+  const vis = visibleCases(), groups = {};
+  vis.forEach(c => (groups[c.split||"other"] ??= []).push(c));
+  const order = [...SPLITS, ...Object.keys(groups).filter(g=>!SPLITS.includes(g))];
+  let h = "";
+  for (const g of order){
+    if (!groups[g]) continue;
+    const gs = groups[g], ok = gs.filter(c=>c.status==="pass").length;
+    h += `<div class="grp"><span>${esc(g)}</span><span>${ok}/${gs.length}</span></div>`;
+    for (const c of gs){
+      const nf = c.findings.filter(f=>f.status==="fail").length;
+      const dots = D.runs.length>1 ? `<span class="dots">${D.runs.map(x=>`<i class="dot st-${caseStatus(caseOf(x,c.case))}" title="${esc(x.label)}: ${esc(statusLabel(caseOf(x,c.case)))}"></i>`).join("")}</span>` : `<i class="dot st-${c.status}" title="${esc(statusLabel(c))}"></i>`;
+      h += `<div class="row ${!S.overview && S.case===c.case?'sel':''}" data-case="${esc(c.case)}">${dots}<div class="nm">${esc(c.case)}</div><span class="cnt">${nf? nf : ""}</span></div>`;
+    }
+  }
+  $("#list").innerHTML = h || `<div class="grp">No cases match</div>`;
+}
+
+/* ---------- case view ---------- */
+function bboxRect(b, W, H, cls){
+  if (!b) return "";
+  const [x0,y0,x1,y1] = b; return `<rect class="${cls}" x="${x0*W}" y="${y0*H}" width="${(x1-x0)*W}" height="${(y1-y0)*H}" rx="3"/>`;
+}
+function wordMark(runs, word, angle, W, H){
+  const r = runs.find(x=>x.text===word); if (!r) return "";
+  const px = r.size * W/640, w = Math.max(6, 0.6*px*word.length), h = px*1.05;
+  const x = r.xy[0]*W, y = r.xy[1]*H;
+  return `<g transform="translate(${x} ${y}) rotate(${-angle})"><rect class="wordbox" x="-2" y="${-h}" width="${w+4}" height="${h+px*0.3}" rx="2"/></g>`;
+}
+function overlay(c, side, key){
+  const sz = D.sizes[key] || [640,480], W = sz[0], H = sz[1];
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><style>
+    .cbox{fill:none;stroke:#2f5bd3;stroke-opacity:.35;stroke-width:1.5;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+    .cbox.hot{stroke:#e8431f;stroke-opacity:1;stroke-width:2.5;stroke-dasharray:none}
+    .wordbox{fill:#e8431f;fill-opacity:.18;stroke:#e8431f;stroke-width:2;vector-effect:non-scaling-stroke}</style>`;
+  if (c.geom){
+    const sel = S.finding!=null ? c.findings[S.finding] : null, hit = sel ? geomFor(c, sel.component) : null;
+    for (const [k,g] of Object.entries(c.geom)){
+      if (k.startsWith("_")) continue;
+      if (hit && hit.key===k) s += bboxRect(g[side], W, H, "cbox hot");
+      else if (S.outlines) s += bboxRect(g[side], W, H, "cbox");
+    }
+    if (hit && hit.word) s += wordMark(hit.g[side+"_runs"]||[], hit.word, hit.g.angle||0, W, H);
+  }
+  return s + "</svg>";
+}
+function stage(c, key, label, cls, extra=""){
+  if (!key || !IMG[key]) return `<div class="stage"><div class="empty-img">${c.status==="infrastructure_error"||!key?"no render":"no image"}</div></div>`;
+  return `<div class="stage zoomable" data-stage="${cls}"><div class="inner2"><img src="${IMG[key]}" alt="${esc(label)}">${overlay(c, cls, key)}${extra}</div></div>`;
+}
+function viewerHtml(c){
+  const r = run(), port = r.package || "port";
+  const modes = [["side","Side by side","s"],["blink","Blink","b"],["swipe","Swipe","w"],["diff","Difference","d"]];
+  let bar = `<div class="vbar"><span class="seg">${modes.map(([m,l,k])=>`<button data-mode="${m}" aria-pressed="${S.mode===m}">${l}<kbd>${k}</kbd></button>`).join("")}</span>
+    <label class="toggle"><input type="checkbox" id="zf" ${S.zoom?"checked":""}> Zoom to finding <kbd>z</kbd></label>
+    <label class="toggle"><input type="checkbox" id="ol" ${S.outlines?"checked":""}> All outlines <kbd>o</kbd></label>
+    <span class="hint">${S.mode==="blink"?"hold <kbd>space</kbd> to stay on Python":S.mode==="diff"?"white = identical":"hover to zoom"}</span></div>`;
+  if (S.mode==="side"){
+    return bar + `<div class="panes"><div><div class="cap"><b>R</b></div>${stage(c,c.ref_img,"R","ref")}</div>
+      <div><div class="cap"><b>${esc(port)}</b></div>${stage(c,c.cand_img,port,"cand")}</div></div>`;
+  }
+  if (!c.ref_img || !c.cand_img || !IMG[c.cand_img]) return bar + `<div class="note">This mode needs both renders; the port produced no image for this case.</div>`;
+  if (S.mode==="blink"){
+    const showPort = S.swap;
+    return bar + `<div class="panes one"><div><div class="cap"><b id="blinklab">${showPort?esc(port):"R"}</b></div>
+      <div class="stage zoomable" id="blinkStage"><div class="inner2"><img src="${IMG[c.ref_img]}" alt="R">${overlay(c,"ref",c.ref_img)}
+      <div class="top" style="opacity:${showPort?1:0}"><img src="${IMG[c.cand_img]}" alt="port">${overlay(c,"cand",c.cand_img)}</div></div>
+      <span class="badge ${showPort?'port':''}" id="blinkBadge">${showPort?esc(port):"R"}</span></div></div></div>`;
+  }
+  if (S.mode==="swipe"){
+    return bar + `<div class="panes one"><div><div class="cap"><b>R</b><b>${esc(port)}</b></div>
+      <div class="stage zoomable" id="swStage"><div class="inner2"><img src="${IMG[c.ref_img]}" alt="R">${overlay(c,"ref",c.ref_img)}
+      <div class="top" style="clip-path:inset(0 0 0 50%)"><img src="${IMG[c.cand_img]}" alt="port">${overlay(c,"cand",c.cand_img)}</div><div class="swline" style="left:50%"></div></div></div>
+      <input type="range" id="swr" min="0" max="100" value="50"></div></div>`;
+  }
+  return bar + `<div class="panes one"><div><div class="cap"><b>R − ${esc(port)}</b></div>
+    <div class="stage zoomable diff"><div class="inner2"><img src="${IMG[c.ref_img]}" alt="R"><div class="top"><img src="${IMG[c.cand_img]}" alt="port"></div></div></div></div></div>`;
+}
+function findingHtml(f, i){
+  const cls = f.status==="known_difference" ? "known" : f.status==="unmeasured" ? "unm" : f.status==="infrastructure_error" ? "infra" : f.status==="fail" ? "fail" : "info";
+  const eo = (f.expected!==undefined || f.observed!==undefined) && f.status!=="unmeasured" && !["render_error","missing_api","case_error","needs_translation"].includes(f.check)
+    ? `<div class="eo"><span><span class="lbl">R</span> ${fmtVal(f.expected)}</span><span class="faint">→</span><span><span class="lbl">py</span> ${fmtVal(f.observed)}</span></div>` : "<div></div>";
+  const tb = f.traceback ? `<details><summary class="faint" style="font-size:12px;cursor:pointer">traceback</summary><pre class="tb">${esc(f.traceback)}</pre></details>` : "";
+  const why = f.status==="known_difference" && f.known_reason ? `<div class="faint" style="font-size:12px;margin-top:3px">Known difference: ${esc(f.known_reason)}</div>` : "";
+  return `<div class="f ${cls} ${S.finding===i?'sel':''}" data-f="${i}"><i class="mk"></i>
+    <div title="${esc(f.message||"")}"><span class="chk">${esc(f.check)}</span> <span class="cmp">${prettyComponent(f.component)}</span>${eo==="<div></div>"?`<div class="msg">${esc(f.message||"")}</div>`:""}${why}${tb}</div>${eo}</div>`;
+}
+function findingsHtml(c){
+  const fs = c.findings.map((f,i)=>[f,i]);
+  const gating = fs.filter(([f])=>f.status!=="known_difference" && f.severity!=="advisory" && f.severity!=="info");
+  const known = fs.filter(([f])=>f.status==="known_difference" || f.severity==="advisory" || f.severity==="info");
+  let h = `<div class="fsec"><h2>Findings <span class="faint" style="font-size:12.5px;font-weight:400">${gating.length} ${gating.length===1?"difference":"differences"}${known.length?` · ${known.length} known/advisory`:""}</span></h2>`;
+  if (!c.findings.length) h += `<div class="ok">No differences.</div>`;
+  if (needsTranslation(c)) h += `<div class="note">No <code>python ${esc(run().package)}</code> block in this case file.</div>`;
+  for (const [t,lab] of TIERS){
+    const xs = gating.filter(([f])=>(f.tier||"inventory")===t); if (!xs.length) continue;
+    h += `<div class="tier"><h3>${lab}</h3>${xs.map(([f,i])=>findingHtml(f,i)).join("")}</div>`;
+  }
+  const other = gating.filter(([f])=>!TIERS.some(([t])=>t===(f.tier||"inventory")));
+  if (other.length) h += `<div class="tier"><h3>Other</h3>${other.map(([f,i])=>findingHtml(f,i)).join("")}</div>`;
+  if (known.length) h += `<div class="tier"><h3>Known & advisory</h3>${known.map(([f,i])=>findingHtml(f,i)).join("")}</div>`;
+  if (c.geom && c.geom._error) h += `<div class="faint" style="font-size:12px;margin-top:8px">(Couldn't recover component outlines: ${esc(c.geom._error)})</div>`;
+  return h + `</div>`;
+}
+function renderCase(){
+  const r = run(), c = caseOf(r, S.case); if (!c) { $("#main").innerHTML = `<div class="faint">Select a case.</div>`; return; }
+  const meta = D.cases[c.case] || {}, port = r.package;
+  const py = meta.python ? (meta.python[port] ?? meta.python[""]) : null;
+  const vis = visibleCases(), i = vis.findIndex(x=>x.case===c.case);
+  $("#main").innerHTML = `<div class="chead"><div><div class="path">${esc(c.relpath||c.case)}</div><h1>${esc(c.case)}</h1>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><span class="pill p-${c.status}"><i class="dot st-${c.status}"></i>${esc(statusLabel(c))}</span>${c.split?`<span class="pill p-split">${esc(c.split)}</span>`:""}</div>
+      ${meta.why?`<p class="why">${esc(meta.why)}</p>`:""}</div>
+      <div class="navbtns"><button class="iconbtn" data-step="-1" ${i<=0?"disabled":""}>← <kbd>k</kbd></button><button class="iconbtn" data-step="1" ${i>=vis.length-1?"disabled":""}><kbd>j</kbd> →</button></div></div>
+    ${meta.r?`<details class="code"><summary>Code</summary><div class="codegrid"><div><div class="lab">R</div><pre>${esc(meta.r)}</pre></div><div><div class="lab">Python · ${esc(port)}</div><pre>${py?esc(py):'<span class="faint">none</span>'}</pre></div></div></details>`:""}
+    <div class="viewer" id="viewer">${viewerHtml(c)}</div>
+    <div id="findings">${findingsHtml(c)}</div>`;
+  wireViewer();
+}
+function rerenderViewer(){ const c = caseOf(run(), S.case); if (!c) return; $("#viewer").innerHTML = viewerHtml(c); wireViewer(); }
+
+/* ---------- overview (several runs) ---------- */
+function renderOverview(){
+  const ids = allCaseIds();
+  let h = `<div class="ov">
+    <table class="mx"><thead><tr><th>Case</th>${D.runs.map(r=>`<th>${esc(r.label)}<div style="text-transform:none;letter-spacing:0;font-weight:500">${counts(r).pass}/${r.cases.length} match</div></th>`).join("")}</tr></thead><tbody>`;
+  for (const id of ids){
+    h += `<tr><td><span class="mono">${esc(id)}</span></td>${D.runs.map((r,ri)=>{ const c=caseOf(r,id); const nf=c?c.findings.filter(f=>f.status==="fail").length:0;
+      return `<td class="c" data-cell="${ri}|${esc(id)}" title="${esc(statusLabel(c))}"><i class="dot st-${caseStatus(c)}"></i>${nf?` <span class="faint mono">${nf}</span>`:""}</td>`;}).join("")}</tr>`;
+  }
+  $("#main").innerHTML = h + `</tbody></table></div>`;
+}
+
+/* ---------- viewer wiring ---------- */
+function findingZoom(side){
+  // [origin x%, origin y%, scale] that enlarges the selected finding's component on this side
+  const c = caseOf(run(), S.case); if (!S.zoom || !c || S.finding==null) return null;
+  const hit = geomFor(c, c.findings[S.finding]?.component); if (!hit) return null;
+  const b = hit.g[side] || hit.g.ref || hit.g.cand; if (!b) return null;
+  const w = Math.max(b[2]-b[0], 0.02), h = Math.max(b[3]-b[1], 0.02);
+  const k = Math.max(1, Math.min(5, 0.7/Math.max(w, h*0.75)));
+  return [100*(b[0]+b[2])/2, 100*(b[1]+b[3])/2, k];
+}
+function wireViewer(){
+  clearInterval(S.blinkT); S.blinkT = null;
+  const stages = [...document.querySelectorAll(".stage.zoomable")];
+  const sideOf = st => st.dataset.stage === "cand" ? "cand" : "ref";
+  const rest = st => { const n = st.querySelector(".inner2"), z = findingZoom(sideOf(st));
+    n.style.transformOrigin = z ? `${z[0]}% ${z[1]}%` : "50% 50%"; n.style.transform = z ? `scale(${z[2]})` : "none"; st.classList.toggle("zoomed", !!z && z[2] > 1.5); };
+  const hover = (xp, yp) => stages.forEach(st => { const n = st.querySelector(".inner2"); n.style.transformOrigin = `${xp}% ${yp}%`; n.style.transform = "scale(3)"; st.classList.add("zoomed"); });
+  stages.forEach(st => {
+    rest(st);
+    st.addEventListener("mousemove", e => { const r = st.getBoundingClientRect(); hover(100*(e.clientX-r.left)/r.width, 100*(e.clientY-r.top)/r.height); });
+    st.addEventListener("mouseleave", () => stages.forEach(rest));
+  });
+  const rg = $("#swr");
+  if (rg) rg.addEventListener("input", () => { const st=$("#swStage"); st.querySelector(".top").style.clipPath = `inset(0 0 0 ${rg.value}%)`; st.querySelector(".swline").style.left = rg.value+"%"; });
+  if (S.mode==="blink" && $("#blinkStage")){
+    let showPort = false;
+    const apply = p => { const st=$("#blinkStage"); if(!st) return; st.querySelector(".top").style.opacity = p?1:0; const port=run().package||"port";
+      $("#blinkBadge").textContent = p?port:"R"; $("#blinkBadge").classList.toggle("port",p); $("#blinklab").textContent = p?port:"R"; };
+    S.blinkT = setInterval(() => { if (S.swap) return apply(true); showPort = !showPort; apply(showPort); }, 700);
+  }
+}
+
+/* ---------- state / events ---------- */
+function selectCase(id, runIdx){ if (runIdx!=null) S.run = runIdx; S.case = id; S.finding = null; S.overview = false; writeHash(); renderAll(); }
+function renderAll(){ renderHeader(); renderFilters(); renderList(); if (S.overview) renderOverview(); else renderCase(); }
+function writeHash(){ const p = new URLSearchParams(); if (S.overview) p.set("ov","1"); else { p.set("run",S.run); if (S.case) p.set("case",S.case); if (S.finding!=null) p.set("f",S.finding); } p.set("mode",S.mode); history.replaceState(null,"","#"+p); }
+function readHash(){ const p = new URLSearchParams(location.hash.slice(1));
+  if (p.has("run")) S.run = Math.min(+p.get("run"), D.runs.length-1);
+  if (p.get("ov")==="1") S.overview = true; else if (p.has("case")) { S.case = p.get("case"); S.overview = false; }
+  if (p.has("f")) S.finding = +p.get("f"); if (p.has("mode")) S.mode = p.get("mode"); }
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-case],[data-run],[data-ov],[data-filter],[data-mode],[data-step],[data-f],[data-cell],#theme"); if (!t) return;
+  if (t.id==="theme"){ const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"); document.documentElement.dataset.theme = cur==="dark"?"light":"dark"; try{localStorage.setItem("pp-theme",document.documentElement.dataset.theme);}catch(_){} return; }
+  if (t.dataset.case) return selectCase(t.dataset.case);
+  if (t.dataset.cell){ const [ri,id] = t.dataset.cell.split("|"); return selectCase(id, +ri); }
+  if (t.dataset.ov){ S.overview = true; writeHash(); return renderAll(); }
+  if (t.dataset.run){ S.run = +t.dataset.run; S.overview = false; if (!caseOf(run(), S.case)) S.case = run().cases[0]?.case; S.finding=null; writeHash(); return renderAll(); }
+  if (t.dataset.filter){ S.filter = t.dataset.filter; renderFilters(); renderList(); return; }
+  if (t.dataset.mode){ S.mode = t.dataset.mode; writeHash(); return rerenderViewer(); }
+  if (t.dataset.step) return step(+t.dataset.step);
+  if (t.dataset.f!=null){ S.finding = S.finding===+t.dataset.f ? null : +t.dataset.f; writeHash(); rerenderViewer(); document.querySelectorAll(".f").forEach(x=>x.classList.toggle("sel", +x.dataset.f===S.finding)); return; }
+});
+document.addEventListener("change", e => { if (e.target.id==="ol"){ S.outlines = e.target.checked; rerenderViewer(); } if (e.target.id==="zf"){ S.zoom = e.target.checked; rerenderViewer(); } });
+$("#q").addEventListener("input", e => { S.q = e.target.value.trim().toLowerCase(); renderList(); });
+function step(d){ const vis = visibleCases(); const i = vis.findIndex(c=>c.case===S.case); const n = vis[Math.max(0, Math.min(vis.length-1, i+d))]; if (n) selectCase(n.case); }
+function stepFinding(d){ const c = caseOf(run(), S.case); if (!c || !c.findings.length) return; const n = c.findings.length;
+  S.finding = S.finding==null ? (d>0?0:n-1) : (S.finding + d + n) % n; writeHash(); rerenderViewer();
+  document.querySelectorAll(".f").forEach(x=>x.classList.toggle("sel", +x.dataset.f===S.finding)); document.querySelector(".f.sel")?.scrollIntoView({block:"nearest"}); }
+document.addEventListener("keydown", e => {
+  if (e.target.matches("input,textarea")) { if (e.key==="Escape") e.target.blur(); return; }
+  const k = e.key;
+  if (k==="/"){ e.preventDefault(); $("#q").focus(); return; }
+  if (k==="j"||k==="ArrowDown") { e.preventDefault(); step(1); }
+  else if (k==="k"||k==="ArrowUp") { e.preventDefault(); step(-1); }
+  else if (k==="]") stepFinding(1); else if (k==="[") stepFinding(-1);
+  else if ({s:"side",b:"blink",w:"swipe",d:"diff"}[k]) { S.mode = {s:"side",b:"blink",w:"swipe",d:"diff"}[k]; writeHash(); rerenderViewer(); }
+  else if (k==="o") { S.outlines = !S.outlines; rerenderViewer(); }
+  else if (k==="z") { S.zoom = !S.zoom; rerenderViewer(); }
+  else if (k==="Escape") { S.finding = null; writeHash(); rerenderViewer(); document.querySelectorAll(".f").forEach(x=>x.classList.remove("sel")); }
+  else if (k===" ") { e.preventDefault(); if (!S.swap){ S.swap = true; swapView(true); } }
+});
+document.addEventListener("keyup", e => { if (e.key===" " && S.swap){ S.swap = false; swapView(false); } });
+function swapView(on){
+  if (S.mode==="blink") return; // handled by the blink timer
+  const st = document.querySelectorAll(".stage .top"); if (st.length) st.forEach(t => { t.dataset.prev ??= t.style.clipPath || ""; t.style.clipPath = on ? "none" : t.dataset.prev; t.style.opacity = on ? 1 : ""; });
+  if (S.mode==="side"){ const imgs = document.querySelectorAll('.stage[data-stage="ref"] img'); const port = document.querySelector('.stage[data-stage="cand"] img');
+    if (imgs[0] && port){ imgs[0].dataset.src ??= imgs[0].src; imgs[0].src = on ? port.src : imgs[0].dataset.src; } }
+}
+
+/* ---------- boot ---------- */
+try{ const t = localStorage.getItem("pp-theme"); if (t) document.documentElement.dataset.theme = t; }catch(_){}
+readHash();
+if (!S.case || !caseOf(run(), S.case)){ const first = run().cases.find(c=>c.status==="fail") || run().cases[0]; S.case = first?.case; }
+renderAll();
+addEventListener("hashchange", () => { readHash(); renderAll(); });
+</script>
+</body>
+</html>

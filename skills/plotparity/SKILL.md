@@ -25,7 +25,12 @@ $PP loop finish  <project> --name <loop> --summary "<outcome; anything you think
 
 - `iterate` prints findings ordered **inventory → layout → style**. Fix the first tier first: later findings are
   often consequences (a missing box makes every check on it fail).
-- Findings carry `(new)` / `(persisting)` tags; "since previous run: N fixed" counts real fixes.
+- Findings carry `(new)` / `(persisting)` tags. "since previous run: N fixed" counts only checks that ran and passed
+  on the same component; `accepted`/`disabled`/`gone` mean the finding vanished for another reason (a known
+  difference, a check turned off, or the component/case no longer measured), not that you fixed it.
+- `unexpected_drawing` = something your port's artists drew isn't part of any component (an extra shape, a stray
+  line, a box outside the panel). `text_alpha` / `text_visible` / `ink_present` = text that is drawn but not (fully)
+  visible.
 - Each finding names the case, component (`box[2:'Some text …']/run[1:'blue']`), check, expected (R) vs observed
   (yours). The report also gives both PNG paths; look at them.
 - `missing_api` = the case uses a function your port doesn't export yet. `render_error` = your code raised.

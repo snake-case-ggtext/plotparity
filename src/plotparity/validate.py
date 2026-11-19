@@ -33,7 +33,7 @@ def validate(project, out: Path | None = None) -> int:
         if "error" in ref:
             problems.append(f"{c.relpath}: {ref['error']['kind']}: {ref['error']['message']}")
             continue
-        comps, _ = adapter.components("r", ref["observations"], c.expect)
+        comps, _ = adapter.components("r", ref["observations"], c.expect, project.canvas_pt)
         if c.measurable and not comps:
             problems.append(f"{c.relpath}: measurable case but the reference has 0 components")
         if c.measurable and c.n_components is not None and len(comps) != c.n_components:

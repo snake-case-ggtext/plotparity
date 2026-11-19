@@ -50,7 +50,7 @@ uv run pytest -q
   - a missing translation
 - **After changing a check, the profile or an adapter:** run pytest here, and `selftest` on every example project that has a `known_good`. Calibrate tolerances on clean pairs only, and record the calibration in `profile.toml`.
 - **After adding or editing cases:** run `references`, then `validate`. Dev and holdout cases must pass on the project's `known_good` port.
-- **`known_differences.toml` is human-owned.** Agents propose entries; a human adds them. The current npc-width entries in plotparity-examples are still pending human sign-off.
+- **`known_differences.toml` is human-owned.** Agents propose entries; a human adds or approves them.
 - **Local `uvx --from <path>` users get fresh builds.** `pyproject.toml` sets `[tool.uv] cache-keys` to watch `src/**`; uv's default watches only `pyproject.toml`.
 
 ## Adding an adapter (new extension)
@@ -89,7 +89,6 @@ The template for a geometry-and-stat adapter is the ggridges pilot (research rec
 - **`<img>` isn't checked.** Python records `draw_image`; the R probe doesn't yet extract raster grobs.
 - **`CANVAS_PT` (640×480) is hard-coded in the ggtext adapter** (padding insets, word-split positions). A per-case canvas override would distort them. Fix by passing the canvas into `components()`.
 - **Facets and multiple panels aren't supported:** segmentation uses the first panel.
-- **Old names:** case ids prefixed `coverage_` predate project-level splits.
 
 ## Log
 

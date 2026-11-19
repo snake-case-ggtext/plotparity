@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import adapters, ports, references
 from . import report as rpt
-from .compare import evaluate_case, load_known, load_profile
+from .compare import evaluate_case, load_known, load_profile, unused_known
 from .engines.python import engine as py_engine
 
 TOOL_SRC = Path(__file__).resolve().parent
@@ -70,8 +70,10 @@ def run(project, selector: str | None, out: Path, source: str | None = None, pre
         elif (cdir / "error.json").exists():
             cand = {"error": json.loads((cdir / "error.json").read_text())}
         else:
-            cand = {"observations": json.loads((cdir / "observations.json").read_text())}
-        res = evaluate_case(c, adapter, profile, known, ref, cand, split=project.split_of(c))
+            cand = {"observations": json.loads((cdir / "observations.json").read_text()),
+                    "png": str(cdir / "candidate.png")}
+        res = evaluate_case(c, adapter, profile, known, ref, cand, package=project.package, split=project.split_of(c),
+                            canvas_pt=project.canvas_pt)
         res["reference_png"] = ref.get("png")
         res["candidate_png"] = str(cdir / "candidate.png") if (cdir / "candidate.png").exists() else None
         if "observations" in cand:
@@ -79,7 +81,6 @@ def run(project, selector: str | None, out: Path, source: str | None = None, pre
                 res.setdefault("warnings", []).append(w)
         results.append(res)
     code = rpt.exit_code(results)
-    used = {(f["case"], f["check"]) for r in results for f in r["findings"] if f["status"] == "known_difference"}
     report = {
         "status": {0: "pass", 1: "fail", 2: "unmeasured"}[code],
         "created": dt.datetime.now().isoformat(timespec="seconds"),
@@ -87,7 +88,7 @@ def run(project, selector: str | None, out: Path, source: str | None = None, pre
         "candidate": {"source": port.source, "root": str(port.root), "commit": port.commit, "dirty": port.dirty,
                       "python": python, "environment": env},
         "profile": profile, "harness": harness_hash(project, env),
-        "known_differences_unused": [k for k in known if (k["case"], k["check"]) not in used and k["case"] in ids],
+        "known_differences_unused": unused_known(known, results, ids),
         "render_log": info["log"], "cases": results,
     }
     if previous and Path(previous).exists():

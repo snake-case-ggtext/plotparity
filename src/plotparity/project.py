@@ -36,6 +36,10 @@ class ConfigError(ValueError):
     """Bad configuration (exit code 3)."""
 
 
+class UsageError(ValueError):
+    """The command was used wrongly, e.g. a missing option or an existing loop name (exit code 3)."""
+
+
 def _load_toml(f: Path, schema: dict, defaults: dict) -> tuple[dict, str]:
     if not f.exists():
         raise ConfigError(f"{f} not found")
@@ -145,6 +149,12 @@ class Project:
         return self.root / "runs"
 
     @property
+    def canvas_pt(self) -> tuple[float, float]:
+        """Canvas size in points (1/72 in) from the library's [render] config."""
+        r = self.library.render
+        return (r["width_px"] * 72.0 / r["dpi"], r["height_px"] * 72.0 / r["dpi"])
+
+    @property
     def render_cfg(self) -> dict:
         return {**self.library.render, "timeout_s": self.cfg["render"]["timeout_s"]}
 
@@ -172,4 +182,4 @@ class Project:
         return select(self.cases(), selector or self.cfg["project"]["default_select"], self.splits)
 
 
-__all__ = ["Library", "Project", "ConfigError", "CaseError"]
+__all__ = ["Library", "Project", "ConfigError", "UsageError", "CaseError"]

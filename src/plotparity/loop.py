@@ -4,7 +4,7 @@ loop init     --name N [--source S] [--goal G]   record harness hash + baseline 
 loop iterate  --name N --note "what changed"     snapshot + diff the port package, evaluate dev with --previous
 loop holdout  --name N                           evaluate holdout; prints pass/fail counts only
 loop finish   --name N --summary "outcome"
-An iteration FAILS (harness_changed) if anything that decides judging changed since init.
+An iteration or holdout run FAILS (harness_changed) if anything that decides judging changed since init.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ import shutil
 from pathlib import Path
 
 from . import ports
-from .runner import harness_hash, run
 from .engines.python import engine as py_engine
-from .runner import candidate_python
+from .project import UsageError
+from .runner import candidate_python, harness_hash, run
 
 MAX_FILE = 2_000_000
 
@@ -70,7 +70,7 @@ def dispatch(project, a) -> int:
     meta_f = d / "meta.json"
     if a.action == "init":
         if d.exists():
-            raise FileExistsError(f"loop {a.name!r} already exists at {d}")
+            raise UsageError(f"loop {a.name!r} already exists at {d}")
         source = a.source or project.cfg["candidate"]["source"]
         port = ports.resolve(source, project.cfg["candidate"]["package"], project.root)
         env = py_engine.environment(candidate_python(project))
@@ -79,16 +79,23 @@ def dispatch(project, a) -> int:
                 "created": _now(), "harness": harness_hash(project, env), "finished": None, "summary": None}
         meta_f.write_text(json.dumps(meta, indent=2))
         return _iterate(project, d, meta, "baseline (starting point)")
+    if not meta_f.exists():
+        raise UsageError(f"no loop {a.name!r} at {d}; start one with `loop init`")
     meta = json.loads(meta_f.read_text())
     if a.action == "iterate":
         if not a.note:
-            raise FileExistsError("loop iterate needs --note describing the change")
+            raise UsageError("loop iterate needs --note describing the change")
         return _iterate(project, d, meta, a.note)
     if a.action == "holdout":
         k = len(list(d.glob("holdout_*"))) + 1
         rep, md, code = run(project, "holdout", d / f"holdout_{k:02d}", source=meta["source"], show_findings=False)
+        changed = _harness_changed(meta, rep)
+        line = {"holdout": k, "ts": _now(), "harness_changed": changed, **_summary(rep)}
+        if changed:
+            code, line["status"] = 1, "fail"
+            md = _harness_message(changed) + md
         with open(d / "loop.jsonl", "a") as fh:
-            fh.write(json.dumps({"holdout": k, "ts": _now(), **_summary(rep)}) + "\n")
+            fh.write(json.dumps(line) + "\n")
         print(md)
         print("(holdout findings are stored for humans; this is trust-based: please don't read them)")
         return code
@@ -100,6 +107,15 @@ def dispatch(project, a) -> int:
     raise ValueError(a.action)
 
 
+def _harness_changed(meta: dict, rep: dict) -> list[str]:
+    return sorted(k for k, v in rep["harness"].items() if k != "all" and meta["harness"].get(k) != v)
+
+
+def _harness_message(changed: list[str]) -> str:
+    return (f"HARNESS CHANGED since loop init ({', '.join(changed)}): this run FAILS. The harness (tool, parity.toml, "
+            "profile, cases, references, known differences, plotnine/matplotlib) must not be edited during a loop.\n\n")
+
+
 def _iterate(project, d: Path, meta: dict, note: str) -> int:
     iters = sorted(p for p in d.glob("iter_*") if p.is_dir())
     n = len(iters)
@@ -109,13 +125,10 @@ def _iterate(project, d: Path, meta: dict, note: str) -> int:
     (it / "changes.diff").write_text(diff)
     prev = iters[-1] / "report.json" if iters else None
     rep, md, code = run(project, "dev", it, source=meta["source"], previous=prev)
-    harness_now = rep["harness"]
-    changed = sorted(k for k, v in harness_now.items() if k != "all" and meta["harness"].get(k) != v)
+    changed = _harness_changed(meta, rep)
     if changed:
         code = 1
-        md = (f"HARNESS CHANGED since loop init ({', '.join(changed)}): this iteration FAILS. The harness (tool, "
-              "parity.toml, profile, cases, references, known differences, plotnine/matplotlib) must not be edited "
-              "during a loop.\n\n" + md)
+        md = _harness_message(changed) + md
         (it / "report.md").write_text(md)
     adds = sum(1 for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++"))
     rems = sum(1 for l in diff.splitlines() if l.startswith("-") and not l.startswith("---"))
