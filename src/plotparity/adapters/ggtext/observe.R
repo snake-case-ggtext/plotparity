@@ -125,6 +125,37 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
               lwd = if (is.null(ch$gp$lwd)) NA else as.numeric(ch$gp$lwd),
               bbox_norm_tl = c(min(xs), min(ys), max(xs), max(ys))
             )
+          } else if (inherits(ch, "rect")) {
+            # label.r / box.r = 0: gridtext draws a plain rect grob instead of a roundrect
+            ch_pushed <- FALSE
+            if (!is.null(ch$vp)) { pushViewport(ch$vp); ch_pushed <- TRUE }
+            hj <- grid::resolveHJust(ch$just, ch$hjust)
+            vj <- grid::resolveVJust(ch$just, ch$vjust)
+            x0_u <- ch$x - hj * ch$width
+            y0_u <- ch$y - vj * ch$height
+            w_pt <- convertWidth(ch$width, "bigpts", valueOnly = TRUE)
+            h_pt <- convertHeight(ch$height, "bigpts", valueOnly = TRUE)
+            c_bl <- to_norm_tl(x0_u, y0_u)
+            c_br <- to_norm_tl(x0_u + ch$width, y0_u)
+            c_tr <- to_norm_tl(x0_u + ch$width, y0_u + ch$height)
+            c_tl <- to_norm_tl(x0_u, y0_u + ch$height)
+            if (ch_pushed) popViewport()
+            xs <- c(c_bl$x_norm, c_br$x_norm, c_tr$x_norm, c_tl$x_norm)
+            ys <- c(c_bl$y_norm, c_br$y_norm, c_tr$y_norm, c_tl$y_norm)
+            blank_edge <- !is.null(ch$gp$lty) && (identical(ch$gp$lty, 0) || identical(ch$gp$lty, "blank"))
+            rect_info <- list(
+              grob_class = paste(class(ch), collapse = ","),
+              width_pt = round(w_pt, 3),
+              height_pt = round(h_pt, 3),
+              corner_radius_pt = 0,
+              is_rounded = FALSE,
+              vertex_count = 4,
+              col = if (blank_edge) "none" else r_hex(ch$gp$col, "none"),
+              fill = r_hex(ch$gp$fill, "none"),
+              alpha = cur_alpha * gp_alpha(ch$gp),
+              lwd = if (is.null(ch$gp$lwd)) NA else as.numeric(ch$gp$lwd),
+              bbox_norm_tl = c(min(xs), min(ys), max(xs), max(ys))
+            )
           } else if (inherits(ch, "polygon") && grepl("roundrect|rect|box", ch$name)) {
             # Forced roundrect becomes a polygon grob with its own viewport (rrvp):
             # 4 vertices => sharp corners, >6 => rounded

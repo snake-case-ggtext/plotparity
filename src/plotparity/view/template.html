@@ -63,7 +63,7 @@ aside{width:300px;flex:none;border-right:1px solid var(--line);background:var(--
 .row .cnt{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
 .dots{display:flex;gap:3px}
 .dot{width:10px;height:10px;border-radius:50%;flex:none;display:inline-block}
-.st-pass{background:var(--pass)} .st-fail{background:var(--fail)} .st-unmeasured{background:var(--unm)} .st-infrastructure_error{background:var(--infra)} .st-none{background:var(--line-2)}
+.st-pass{background:var(--pass)} .st-okd{background:var(--pass);box-shadow:0 0 0 2px var(--surface),0 0 0 3.5px var(--pass)} .st-fail{background:var(--fail)} .st-unmeasured{background:var(--unm)} .st-infrastructure_error{background:var(--infra)} .st-none{background:var(--line-2)}
 main{flex:1;overflow:auto;min-width:0}
 .inner{max-width:1280px;margin:0 auto;padding:18px 24px 60px}
 
@@ -131,6 +131,10 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-top:8px}
 .f .eo .lbl{font-family:var(--sans);font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
 .sw{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid var(--line-2);vertical-align:-2px}
 .f.known{opacity:.75} .f.known .mk{background:var(--known)}
+.f.okd{opacity:.6} .f.okd .mk{background:var(--pass)}
+.okbtn{border:1px solid var(--line-2);background:var(--surface);border-radius:6px;padding:1px 8px;font-size:11.5px;color:var(--ink-2);margin-left:10px}
+.okbtn[aria-pressed="true"]{background:var(--pass-soft);color:var(--pass);border-color:var(--pass)}
+.f .right{display:flex;align-items:center}
 .f.unm .mk{background:var(--unm)} .f.fail .mk{background:var(--fail)} .f.infra .mk{background:var(--infra)} .f.info .mk{background:var(--line-2)}
 .note{font-size:12.5px;color:var(--ink-2);background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--unm);padding:9px 12px;border-radius:0 8px 8px 0;margin-top:8px}
 .ok{font-size:13.5px;color:var(--pass);background:var(--pass-soft);padding:10px 12px;border-radius:9px}
@@ -156,7 +160,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line-2);border
       <div class="chips" id="fchips"></div>
     </div>
     <div class="caselist" id="list"></div>
-    <div class="keys"><kbd>j</kbd><kbd>k</kbd> case · <kbd>[</kbd><kbd>]</kbd> finding · <kbd>s</kbd> side · <kbd>b</kbd> blink · <kbd>w</kbd> swipe · <kbd>d</kbd> diff · <kbd>space</kbd> hold to swap · <kbd>z</kbd> zoom · <kbd>o</kbd> outlines · <kbd>esc</kbd> clear</div>
+    <div class="keys"><kbd>j</kbd><kbd>k</kbd> case · <kbd>[</kbd><kbd>]</kbd> finding · <kbd>s</kbd> side · <kbd>b</kbd> blink · <kbd>w</kbd> swipe · <kbd>d</kbd> diff · <kbd>space</kbd> hold to swap · <kbd>z</kbd> zoom · <kbd>o</kbd> outlines · <kbd>a</kbd> finding OK · <kbd>A</kbd> case OK · <kbd>esc</kbd> clear</div>
   </aside>
   <main><div class="inner" id="main"></div></main>
 </div>
@@ -168,6 +172,14 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const STATUS = {pass:"Matches R", fail:"Differs", unmeasured:"Not measured", infrastructure_error:"Error"};
 const SPLITS = ["dev","holdout","coverage"];
 const TIERS = [["inventory","Content"],["layout","Layout"],["style","Style"]];
+const OK = new Set();   // reviewed-OK marks: "run|case" or "run|case|findingIndex" (memory only, never saved)
+const okKey = (c, i) => `${S.run}|${c.case}` + (i==null ? "" : `|${i}`);
+function failIdx(c){ return c.findings.map((f,i)=>[f,i]).filter(([f])=>f.status==="fail").map(([,i])=>i); }
+function caseOk(c, runIdx=S.run){
+  if (!c || c.status==="pass") return false;
+  if (OK.has(`${runIdx}|${c.case}`)) return true;
+  const idx = failIdx(c); return idx.length>0 && c.status==="fail" && idx.every(i=>OK.has(`${runIdx}|${c.case}|${i}`));
+}
 const S = {run:0, case:null, filter:"all", q:"", mode:"side", outlines:false, zoom:true, finding:null, overview: D.runs.length>1, swap:false, blinkT:null};
 
 /* ---------- helpers ---------- */
@@ -217,11 +229,12 @@ function renderHeader(){
   const bad = k.fail, unm = k.unmeasured + k.infrastructure_error;
   const verdict = bad===0 && unm===0 ? `All <span class="n">${n}</span> cases match R`
     : `<span class="n">${k.pass}</span> of <span class="n">${n}</span> cases match R` + (bad? ` · <span class="n" style="color:var(--fail)">${bad}</span> differ` : "") + (unm? ` · <span class="n" style="color:var(--unm)">${unm}</span> not measured` : "");
+  const nOk = r.cases.filter(c=>caseOk(c)).length;
   const bar = ["pass","fail","unmeasured","infrastructure_error"].map(s=>`<i class="st-${s}" style="width:${100*k[s]/n}%"></i>`).join("");
   const src = cand.source ? `<code>${esc(String(cand.source).replace(/^git\+https:\/\/github.com\//,"").replace(/@([0-9a-f]{7})[0-9a-f]+$/,"@$1"))}</code>` : "";
   const tabs = D.runs.length>1 ? `<div class="runtabs">${[`<button data-ov="1" aria-pressed="${S.overview}"><b>Overview</b><span class="faint">${D.runs.length} runs</span></button>`].concat(D.runs.map((x,i)=>`<button data-run="${i}" aria-pressed="${!S.overview && S.run===i}"><b>${esc(x.label)}</b><span class="faint">${counts(x).pass}/${x.cases.length} match</span></button>`)).join("")}</div>` : "";
   $("#hdr").innerHTML = `<div class="hd-title"><div class="verdict">${verdict}</div>
-    <div class="sub">${src} · ${esc((r.created||"").replace("T"," "))} · <code>--select ${esc(r.selection)}</code></div></div>
+    <div class="sub">${src} · ${esc((r.created||"").replace("T"," "))}${nOk?` · <span style="color:var(--pass)">${nOk} marked OK</span>`:""}</div></div>
     <div><div class="statbar">${bar}</div><div class="legend">${["pass","fail","unmeasured","infrastructure_error"].filter(s=>k[s]).map(s=>`<span><i class="dot st-${s}"></i>${k[s]} ${({pass:"match",fail:"differ",unmeasured:"not measured",infrastructure_error:"error"})[s]}</span>`).join("")}</div></div>
     ${tabs}<button class="iconbtn" id="theme" title="Toggle theme">◐</button>`;
 }
@@ -252,7 +265,7 @@ function renderList(){
     h += `<div class="grp"><span>${esc(g)}</span><span>${ok}/${gs.length}</span></div>`;
     for (const c of gs){
       const nf = c.findings.filter(f=>f.status==="fail").length;
-      const dots = D.runs.length>1 ? `<span class="dots">${D.runs.map(x=>`<i class="dot st-${caseStatus(caseOf(x,c.case))}" title="${esc(x.label)}: ${esc(statusLabel(caseOf(x,c.case)))}"></i>`).join("")}</span>` : `<i class="dot st-${c.status}" title="${esc(statusLabel(c))}"></i>`;
+      const dots = D.runs.length>1 ? `<span class="dots">${D.runs.map((x,xi)=>{ const cx=caseOf(x,c.case); return `<i class="dot st-${caseOk(cx,xi)?"okd":caseStatus(cx)}" title="${esc(x.label)}: ${esc(statusLabel(cx))}"></i>`;}).join("")}</span>` : `<i class="dot st-${caseOk(c)?"okd":c.status}" title="${esc(caseOk(c)?"Marked OK":statusLabel(c))}"></i>`;
       h += `<div class="row ${!S.overview && S.case===c.case?'sel':''}" data-case="${esc(c.case)}">${dots}<div class="nm">${esc(c.case)}</div><span class="cnt">${nf? nf : ""}</span></div>`;
     }
   }
@@ -320,13 +333,15 @@ function viewerHtml(c){
     <div class="stage zoomable diff"><div class="inner2"><img src="${IMG[c.ref_img]}" alt="R"><div class="top"><img src="${IMG[c.cand_img]}" alt="port"></div></div></div></div></div>`;
 }
 function findingHtml(f, i){
-  const cls = f.status==="known_difference" ? "known" : f.status==="unmeasured" ? "unm" : f.status==="infrastructure_error" ? "infra" : f.status==="fail" ? "fail" : "info";
+  const c = caseOf(run(), S.case), isOk = f.status==="fail" && (OK.has(okKey(c,i)) || OK.has(okKey(c)));
+  const okb = f.status==="fail" ? `<button class="okbtn" data-ok="${i}" aria-pressed="${isOk}" title="Mark this finding OK (a)">${isOk?"✓ OK":"OK"}</button>` : "";
+  const cls = (isOk ? "okd " : "") + f.status==="known_difference" ? "known" : f.status==="unmeasured" ? "unm" : f.status==="infrastructure_error" ? "infra" : f.status==="fail" ? "fail" : "info";
   const eo = (f.expected!==undefined || f.observed!==undefined) && f.status!=="unmeasured" && !["render_error","missing_api","case_error","needs_translation"].includes(f.check)
     ? `<div class="eo"><span><span class="lbl">R</span> ${fmtVal(f.expected)}</span><span class="faint">→</span><span><span class="lbl">py</span> ${fmtVal(f.observed)}</span></div>` : "<div></div>";
   const tb = f.traceback ? `<details><summary class="faint" style="font-size:12px;cursor:pointer">traceback</summary><pre class="tb">${esc(f.traceback)}</pre></details>` : "";
   const why = f.status==="known_difference" && f.known_reason ? `<div class="faint" style="font-size:12px;margin-top:3px">Known difference: ${esc(f.known_reason)}</div>` : "";
   return `<div class="f ${cls} ${S.finding===i?'sel':''}" data-f="${i}"><i class="mk"></i>
-    <div title="${esc(f.message||"")}"><span class="chk">${esc(f.check)}</span> <span class="cmp">${prettyComponent(f.component)}</span>${eo==="<div></div>"?`<div class="msg">${esc(f.message||"")}</div>`:""}${why}${tb}</div>${eo}</div>`;
+    <div title="${esc(f.message||"")}"><span class="chk">${esc(f.check)}</span> <span class="cmp">${prettyComponent(f.component)}</span>${eo==="<div></div>"?`<div class="msg">${esc(f.message||"")}</div>`:""}${why}${tb}</div><div class="right">${eo}${okb}</div></div>`;
 }
 function findingsHtml(c){
   const fs = c.findings.map((f,i)=>[f,i]);
@@ -351,7 +366,7 @@ function renderCase(){
   const py = meta.python ? (meta.python[port] ?? meta.python[""]) : null;
   const vis = visibleCases(), i = vis.findIndex(x=>x.case===c.case);
   $("#main").innerHTML = `<div class="chead"><div><div class="path">${esc(c.relpath||c.case)}</div><h1>${esc(c.case)}</h1>
-      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><span class="pill p-${c.status}"><i class="dot st-${c.status}"></i>${esc(statusLabel(c))}</span>${c.split?`<span class="pill p-split">${esc(c.split)}</span>`:""}</div>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="pill p-${c.status}"><i class="dot st-${c.status}"></i>${esc(statusLabel(c))}</span>${c.split?`<span class="pill p-split">${esc(c.split)}</span>`:""}${c.status!=="pass"?`<button class="okbtn" data-okcase="1" aria-pressed="${caseOk(c)}" title="Mark the whole case OK (A)">${caseOk(c)?"✓ Case marked OK":"Mark case OK"}</button>`:""}</div>
       ${meta.why?`<p class="why">${esc(meta.why)}</p>`:""}</div>
       <div class="navbtns"><button class="iconbtn" data-step="-1" ${i<=0?"disabled":""}>← <kbd>k</kbd></button><button class="iconbtn" data-step="1" ${i>=vis.length-1?"disabled":""}><kbd>j</kbd> →</button></div></div>
     ${meta.r?`<details class="code"><summary>Code</summary><div class="codegrid"><div><div class="lab">R</div><pre>${esc(meta.r)}</pre></div><div><div class="lab">Python · ${esc(port)}</div><pre>${py?esc(py):'<span class="faint">none</span>'}</pre></div></div></details>`:""}
@@ -359,6 +374,8 @@ function renderCase(){
     <div id="findings">${findingsHtml(c)}</div>`;
   wireViewer();
 }
+function refreshOk(){ const y = $("#main").scrollTop ?? 0; renderList(); renderHeader(); $("#findings").innerHTML = findingsHtml(caseOf(run(), S.case));
+  const hb = document.querySelector("[data-okcase]"); if (hb){ const c = caseOf(run(), S.case); hb.setAttribute("aria-pressed", caseOk(c)); hb.textContent = caseOk(c) ? "✓ Case marked OK" : "Mark case OK"; } }
 function rerenderViewer(){ const c = caseOf(run(), S.case); if (!c) return; $("#viewer").innerHTML = viewerHtml(c); wireViewer(); }
 
 /* ---------- overview (several runs) ---------- */
@@ -414,6 +431,9 @@ function readHash(){ const p = new URLSearchParams(location.hash.slice(1));
   if (p.get("ov")==="1") S.overview = true; else if (p.has("case")) { S.case = p.get("case"); S.overview = false; }
   if (p.has("f")) S.finding = +p.get("f"); if (p.has("mode")) S.mode = p.get("mode"); }
 document.addEventListener("click", e => {
+  const okb = e.target.closest("[data-ok],[data-okcase]");
+  if (okb){ e.stopPropagation(); const c = caseOf(run(), S.case); if (!c) return;
+    const k = okb.dataset.okcase ? okKey(c) : okKey(c, +okb.dataset.ok); OK.has(k) ? OK.delete(k) : OK.add(k); refreshOk(); return; }
   const t = e.target.closest("[data-case],[data-run],[data-ov],[data-filter],[data-mode],[data-step],[data-f],[data-cell],#theme"); if (!t) return;
   if (t.id==="theme"){ const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"); document.documentElement.dataset.theme = cur==="dark"?"light":"dark"; try{localStorage.setItem("pp-theme",document.documentElement.dataset.theme);}catch(_){} return; }
   if (t.dataset.case) return selectCase(t.dataset.case);
@@ -441,6 +461,10 @@ document.addEventListener("keydown", e => {
   else if ({s:"side",b:"blink",w:"swipe",d:"diff"}[k]) { S.mode = {s:"side",b:"blink",w:"swipe",d:"diff"}[k]; writeHash(); rerenderViewer(); }
   else if (k==="o") { S.outlines = !S.outlines; rerenderViewer(); }
   else if (k==="z") { S.zoom = !S.zoom; rerenderViewer(); }
+  else if (k==="a" || k==="A") { const c = caseOf(run(), S.case); if (!c) return;
+    const key = k==="A" || S.finding==null ? okKey(c) : okKey(c, S.finding);
+    if (k==="a" && S.finding!=null && c.findings[S.finding]?.status!=="fail") return;
+    OK.has(key) ? OK.delete(key) : OK.add(key); refreshOk(); }
   else if (k==="Escape") { S.finding = null; writeHash(); rerenderViewer(); document.querySelectorAll(".f").forEach(x=>x.classList.remove("sel")); }
   else if (k===" ") { e.preventDefault(); if (!S.swap){ S.swap = true; swapView(true); } }
 });
