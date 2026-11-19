@@ -56,7 +56,7 @@ ggplot(df, aes("x", "y", label="label")) + geom_richtext()
 
 | Part | Meaning |
 | --- | --- |
-| `expect.components` | How many labelled boxes the R render should contain. `validate` checks this against the R reference. |
+| `expect.components` | How many rich-text labels the R render should contain: in-panel boxes plus rich theme elements (titles, axis labels, strips, legend text). `validate` checks this against the R reference. |
 | `expect.frame` | Whether boxes have a visible frame. Frame checks (padding, corners) only run when it's true. |
 | `expect.measurable` | `false` for features the checker can't extract yet (e.g. `<img>` content). Such a case reports `unmeasured`, never a pass. |
 | `data` | The one shared data table. |

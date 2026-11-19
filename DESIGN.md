@@ -38,7 +38,7 @@ known_differences.toml, mutations/ # next to parity.toml
 .plotparity/runs/<timestamp>/      # run output (report.md / .json / .html, renders); `latest` points at the newest
 ```
 
-Caches live in `$PLOTPARITY_CACHE` (default `~/.cache/plotparity`): `packages/` holds shallow clones of git sources, and `envs/` holds uv-built environments.
+Caches live in `$PLOTPARITY_CACHE` (default `~/.cache/plotparity`): `ports/` holds shallow clones of git sources, and `envs/` holds uv-built environments.
 
 ## 2. Configuration
 
@@ -100,7 +100,7 @@ data: {x: 0.5, y: [0.2, 0.8], label: ["**a**", "b"]}    # → `df` in every engi
 # my_case
 One sentence: why this case exists.
 ```
-Then a ```` ```r ```` block (the spec), and zero or more ```` ```python <package-package> ```` blocks, e.g. ```` ```python plotnine_ggtext ````. An untagged ```` ```python ```` block is the default for packages that have no block of their own.
+Then a ```` ```r ```` block (the spec), and zero or more ```` ```python <package> ```` blocks, e.g. ```` ```python plotnine_ggtext ````. An untagged ```` ```python ```` block is the default for packages that have no block of their own.
 
 - If a case has **no block for the package and no default block**, the result is `unmeasured` (`needs_translation`). This fails closed, and the cases double as a translation to-do list.
 - **No `split` in case files.** Projects assign splits.
@@ -122,7 +122,7 @@ Then a ```` ```r ```` block (the spec), and zero or more ```` ```python <package
 - Runs in the candidate interpreter with `PYTHONPATH = <package parent>:<plotparity/src>`.
 - Checks that `<package>.__file__` is under the resolved source. If not, the case is an `environment_error`.
 - Before each case: resets rcParams, pins fonts, and resets the plotnine theme.
-- Draws once to let plotnine finalize layout, then draws **once more through the recording proxy on the Agg renderer and saves `candidate.png` from that same buffer**, so the image and the observations come from one draw. (Accepted after checking that these PNGs are pixel-identical to the previous `savefig` PNGs for all 27 rendered cases of both example packages.)
+- Draws once to let plotnine finalize layout, then draws **once more through the recording proxy on the Agg renderer and saves `candidate.png` from that same buffer**, so the image and the observations come from one draw.
 - Records every `draw_*` route (`draw_path`, `draw_text`, `draw_image` decoded; `draw_path_collection`, `draw_markers`, `draw_quad_mesh`, `draw_gouraud_triangles`, `draw_tex` recorded by name), with paint order, group stack, clip, panel bbox, effective alpha, and the **owner** of each event (§5, "Ownership").
 - Tags each event drawn by a themed artist with its ggplot2 **role** (`plot.title`, `axis.text.x.bottom`, `strip.text.x.top`, `legend.text`, …). The themed artists are the ones plotnine applies each theme element to: `theme.targets`, each guide's own theme, the axes' tick labels. These are plotnine 0.15 internals, pinned by `tests/test_roles.py`.
 - Then draws once more with the package's top-level artists hidden and records `port_ink_px`: how many panel pixels the package's artists changed. This diagnostic pass never feeds the PNG or the observations.
@@ -166,7 +166,7 @@ Known limit: a package that adds plain matplotlib artists (e.g. `ax.text`) strai
 - **Components:** one per themed artist that drew text. R gets the same from the forced gtable: each cell name maps to a role, and a gTree of `gridtext.*` grobs is one rich label.
 - **Scope:** only roles that are rich text in R are compared (`in_scope`). Plain titles are plotnine's own; a package that leaves a rich role plain is still caught, because the role is the same.
 - **Pairing:** within a role, by order along the canvas.
-- **Position:** measured relative to the panel edge the role hangs off. `chrome_position` is coarse (10% of the panel); fine placement differs between ggplot2 and plotnine by design.
+- **Position:** measured relative to the panel edge the role hangs off. `chrome_position` is coarse (a fraction of the panel; see the profile); fine placement differs between ggplot2 and plotnine by design.
 - **Width-dependent checks:** horizontal padding and line count apply only when both boxes have the same width, since an `element_textbox` takes its width from the layout.
 
 ```python
@@ -178,6 +178,7 @@ def describe_component(comp) -> dict           # what the core prints for a miss
 def match(ref_components, cand_components) -> (pairs, missing, unexpected)   # adapter-local; must
     # not use the properties under test; must enforce a max cost (no forced matches)
 CHECKS = {name: fn}     # fn(ref, cand, P, add, expect); returns False when it doesn't apply to the pair
+def in_scope(comp, reference) -> bool          # optional: drop candidate components with no reference counterpart
 ```
 
 A component carries core keys where they apply (the core runs a check only if its key is present):
@@ -207,7 +208,7 @@ A component carries core keys where they apply (the core runs a check only if it
 - text style: `text_color`, `text_alpha`, `font_weight`, `font_style`, `font_size`
 - shape and placement: `fill_color`, `edge_color` (colour and opacity), `rotation`, `centroid`, `shape_size`
 
-**ggtext adapter checks:** `raw_markup_leak`, `sup_sub_offset`, `line_count`, `line_breaks` (advisory), `text_overflow`, `padding`, `rounded_corners`.
+**ggtext adapter checks:** `raw_markup_leak`, `sup_sub_offset`, `line_count`, `line_breaks` (advisory), `text_overflow`, `padding`, `rounded_corners`, `chrome_position`.
 
 **Profile** (shipped by the adapter, overridden in parity.toml)
 
@@ -216,7 +217,7 @@ A component carries core keys where they apply (the core runs a check only if it
 severity = "gating"    # gating | advisory | off
 tier = "style"         # inventory | layout | style: orders the feedback
 tol = 6.0              # numeric keys: tol, rel_tol, alpha_tol, min (finite, >= 0)
-calibration = "ΔE2000; frozen in REPORT.md before mutation testing"
+calibration = "CIEDE2000; clean max 0"
 ```
 
 An unknown check name or key is an error.
@@ -231,7 +232,7 @@ An unknown check name or key is an error.
 
 **Exit codes:** `1` if any case fails, else `2` if any case is unmeasured or infrastructure, else `0`. `3` means a usage or configuration error.
 
-**What a pass means:** the selected gating checks passed for the selected measurable cases. It says nothing about what the adapter doesn't extract (README, "What is (not yet) checked").
+**What a pass means:** the selected gating checks passed for the selected measurable cases. It says nothing about what the adapter doesn't extract (README, "What a pass means").
 
 **Per-check outcomes.** Each case result records, per component and per check, `pass`, `fail`, `unmeasured`, `known_difference`, `off` or `not_applicable` (plus a `case` entry for case-level checks), and a `drawing` summary (package events, how many are in components, other-layer events, events with no owner).
 
@@ -268,7 +269,7 @@ Rendering has a timeout (120 s per case). `run` treats a reference as an infrast
 - the harness hash
 - per-case findings
 
-Each finding has a fingerprint, `case|check|ref_component`. With `--previous`, current failures are tagged `new` or `persisting`. Each previous failure that no longer fails is classified from the per-check outcome on the same component:
+Each finding has a fingerprint, `case|check|ref_component`. When compared with an earlier run (`run --compare RUN`; by default the last run of the same package and cases), current failures are tagged `new` or `persisting`. Each previous failure that no longer fails is classified from the per-check outcome on the same component:
 
 | Outcome now | Reported as |
 | --- | --- |
@@ -293,7 +294,7 @@ If the harness hash differs from the previous report's, the report says so and n
 | Command | What it does |
 | --- | --- |
 | `loop init` | Stores the harness hash. |
-| `loop iterate` | Snapshots the source and records the diff, then runs `run --previous`. Appends to `loop.jsonl`. Fails the iteration if the harness hash changed. |
+| `loop iterate` | Snapshots the source and records the diff, then runs and compares with the previous iteration. Appends to `loop.jsonl`. Fails the iteration if the harness hash changed. |
 | `loop holdout` | Prints counts only. Fails (exit 1) if the harness hash changed since `loop init`, like `iterate`. |
 | `loop finish` | Closes the loop. |
 
@@ -327,7 +328,6 @@ The harness hash covers:
 | `datasets`, `data_file`, `levels` | No current case needs them |
 | Severity `info`, per-split exit status, progress score | Simpler status model |
 | `paint_order` check | Add with the ggridges adapter |
-| A matrix/explore view beyond `plotparity view RUN RUN` | |
 | Git branch resolution | Ports are a shallow clone of an explicit commit or tag into `~/.cache/plotparity` |
 | Known-difference approval/expiry workflow | The file is human-owned and hashed |
 | Crash re-run | One process per run; `--isolate` gives one per case |

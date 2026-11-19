@@ -112,7 +112,7 @@ A pass means the checks passed for the cases that could be measured. For each th
 - **how text looks:** colour, opacity, weight, style, size, superscript/subscript offsets, and that it's visible (not clipped, actually inked);
 - **layout:** rotation, placement, box size, padding, line count, overflow;
 - **frames:** fill and outline colour and opacity, rounded corners;
-- **theme elements** (`element_markdown`, `element_textbox` on titles, axis labels, strips, legend text): the same text, style, frame and padding checks, and a coarse position check (off by more than 10% of the panel along or away from its edge).
+- **theme elements** (`element_markdown`, `element_textbox` on titles, axis labels, strips, legend text): the same text, style, frame and padding checks, and a coarse position check (off by a large share of the panel along or away from its edge: wrong alignment, wrong side).
 
 Not checked yet:
 
@@ -128,7 +128,7 @@ Only ggtext is supported today. Supporting another extension means writing an ad
 
 ## Example
 
-[plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) has 16 ggtext cases and two ggtext packages tested against them, one that matches and one with real gaps:
+[plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) has a set of ggtext cases and two ggtext packages tested against them, one that matches R and one with real gaps:
 
 ```bash
 git clone https://github.com/snake-case-ggtext/plotparity-examples
