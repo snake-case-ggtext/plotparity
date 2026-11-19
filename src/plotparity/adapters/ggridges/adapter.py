@@ -5,8 +5,8 @@ A shape belongs to the ridge whose baseline it sits on: discrete level i sits at
 baseline, an outline belongs to the level just below its lowest point. Shapes the package draws that sit on no
 level become their own component and are reported as unexpected. Ridges pair by level (never by drawn properties).
 
-Positions are compared in data units converted to points with each side's own panel size, so tolerances read as
-"visible or not" and the ggplot2-vs-plotnine panel offset cancels out. The built density curve (when the stat makes
+Positions are compared in data units and expressed in points with R's panel scale, so tolerances read as "visible or
+not" and the ggplot2-vs-plotnine panel size difference cancels out. The built density curve (when the stat makes
 one) is compared too: it names the cause when a ridge's shape differs.
 """
 from __future__ import annotations
@@ -161,22 +161,22 @@ def ridge_pieces(r, c, P, add, expect):
 
 
 def ridge_position(r, c, P, add, expect):
-    """Baseline, drawn height, x extent and the top curve, in points."""
-    if not _both_filled(r, c) or not (r["pt_x"] and r["pt_y"] and c["pt_x"] and c["pt_y"]):
+    """Baseline, height, x extent and top curve. Compared in data units and expressed in points with R's panel scale
+    (plotnine lays out a slightly different panel than ggplot2 by design; that must not read as a taller ridge)."""
+    if not _both_filled(r, c) or not (r["pt_x"] and r["pt_y"]):
         return False
-    tol = P["tol"]
-    d = abs(r["baseline"] - c["baseline"]) * c["pt_y"]
+    tol, kx, ky = P["tol"], r["pt_x"], r["pt_y"]
+    d = abs(r["baseline"] - c["baseline"]) * ky
     if exceeds(d, tol, "ridge_position"):
         add("ridge_position", round(r["baseline"], 4), round(c["baseline"], 4),
             f"Baseline is {d:.1f}pt off.", delta=round(d, 2), sub="baseline")
-    d = abs(r["peak"] * r["pt_y"] - c["peak"] * c["pt_y"])
-    if exceeds(d, tol, "ridge_position"):
-        add("ridge_position", round(r["peak"] * r["pt_y"], 1), round(c["peak"] * c["pt_y"], 1),
-            f"Peak height {c['peak'] * c['pt_y']:.1f}pt, expected {r['peak'] * r['pt_y']:.1f}pt.",
-            delta=round(c["peak"] * c["pt_y"] - r["peak"] * r["pt_y"], 2), sub="height")
+    d = (c["peak"] - r["peak"]) * ky
+    if exceeds(abs(d), tol, "ridge_position"):
+        add("ridge_position", round(r["peak"] * ky, 1), round(c["peak"] * ky, 1),
+            f"Peak height {c['peak'] * ky:.1f}pt, expected {r['peak'] * ky:.1f}pt.", delta=round(d, 2), sub="height")
     ra = [min(p["x_min"] for p in r["fills"]), max(p["x_max"] for p in r["fills"])]
     ca = [min(p["x_min"] for p in c["fills"]), max(p["x_max"] for p in c["fills"])]
-    d = max(abs(ra[0] - ca[0]), abs(ra[1] - ca[1])) * c["pt_x"]
+    d = max(abs(ra[0] - ca[0]), abs(ra[1] - ca[1])) * kx
     if exceeds(d, tol, "ridge_position"):
         add("ridge_position", [round(v, 4) for v in ra], [round(v, 4) for v in ca],
             f"Ridge spans x {ca[0]:.4g}–{ca[1]:.4g}, expected {ra[0]:.4g}–{ra[1]:.4g} ({d:.1f}pt off).",
@@ -185,10 +185,10 @@ def ridge_position(r, c, P, add, expect):
     ta, tb = _eval_top(r["fills"], xs), _eval_top(c["fills"], xs)
     m = np.isfinite(ta) & np.isfinite(tb)
     if m.any():
-        dev = np.abs(ta[m] * r["pt_y"] - tb[m] * c["pt_y"] - (r["baseline"] * r["pt_y"] - c["baseline"] * c["pt_y"]))
+        dev = np.abs((ta[m] - r["baseline"]) - (tb[m] - c["baseline"])) * ky
         k = int(np.argmax(dev))
         d = float(dev[k])
-        if exceeds(d, P["tol"], "ridge_position"):
+        if exceeds(d, tol, "ridge_position"):
             add("ridge_position", None, None,
                 f"The ridge's top curve is up to {d:.1f}pt off (at x={xs[m][k]:.4g}).", delta=round(d, 2), sub="curve")
 
