@@ -37,7 +37,7 @@ plotparity run path/to/cases --from git+https://github.com/someone/plotnine-foo@
 
 `run` finds the package, installs it with its dependencies into a cached environment, renders any missing R references, compares, and writes a report to `.plotparity/runs/` (`report.md`, `report.json`, `report.html`). `--open` opens the HTML report, which shows R and Python side by side (also blink, swipe and difference) with each finding outlined on both images.
 
-Cases plotparity can't measure yet (theme elements, `<img>`) are compared by eye. **OK** marks a finding or a whole case as reviewed. Marks are saved in your browser and tied to that exact render, so they carry over to later runs until the render changes.
+Cases plotparity can't measure yet (such as `<img>`) are compared by eye. **OK** marks a finding or a whole case as reviewed. Marks are saved in your browser and tied to that exact render, so they carry over to later runs until the render changes.
 
 | Option | |
 | --- | --- |
@@ -58,7 +58,7 @@ Cases plotparity can't measure yet (theme elements, `<img>`) are compared by eye
 | --- | --- | --- |
 | matches | every check agrees with R | nothing |
 | differs | at least one check disagrees | fix the first findings first: content, then layout, then style |
-| not measured | the case can't be compared yet (e.g. theme elements) | look at the images; it is not a pass |
+| not measured | the case can't be compared yet (e.g. `<img>`) | look at the images; it is not a pass |
 | needs translation | the case has no Python block for your package | add one to the case file |
 | error | the case, reference or environment is broken, not your package | fix the case or the setup |
 
@@ -104,13 +104,14 @@ A pass means the checks passed for the cases that could be measured. For each th
 - **what is drawn:** the words and their order, no leaked markup (`**`, `<span>`, `~sub~`), the number of boxes, and nothing extra drawn by your package;
 - **how text looks:** colour, opacity, weight, style, size, superscript/subscript offsets, and that it's visible (not clipped, actually inked);
 - **layout:** rotation, placement, box size, padding, line count, overflow;
-- **frames:** fill and outline colour and opacity, rounded corners.
+- **frames:** fill and outline colour and opacity, rounded corners;
+- **theme elements** (`element_markdown`, `element_textbox` on titles, axis labels, strips, legend text): the same text, style and frame checks, top/bottom padding, and a coarse position check (off by more than 10% of the panel along or away from its edge).
 
 Not checked yet:
 
-- theme elements: titles, axis labels, strips and legend text (`element_markdown`, `element_textbox`), which report `not measured`;
+- fine placement of theme elements (a few points of margin), since ggplot2 and plotnine lay them out differently by design;
 - the content of `<img>` images;
-- facets (only the first panel is read) and legends;
+- in-panel boxes on facets (only the first panel is read);
 - plain matplotlib artists a package adds straight to the axes, and drawing that bypasses matplotlib's renderer;
 - glyph shapes and kerning, outline width and dashes, stacking order against other layers.
 

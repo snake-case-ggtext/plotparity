@@ -20,12 +20,12 @@ tier = "inventory"
 [checks.unexpected_drawing]
 severity = "gating"
 tier = "inventory"
-calibration = "fail closed: any draw call made by the port's own artists that no component claims, or made outside every top-level artist"
+calibration = "any port draw call outside a component"
 
 [checks.extractor_blind]
 severity = "gating"
 tier = "inventory"
-calibration = "unmeasured (never pass) when no candidate component is extracted but the port's artists changed panel pixels"
+calibration = "no components but port ink: unmeasured"
 
 [checks.text_content]
 severity = "gating"
@@ -36,20 +36,20 @@ tier = "inventory"
 severity = "gating"
 tier = "layout"
 tol = 2.0
-calibration = "degrees; clean pairs differ by 0"
+calibration = "degrees; clean max 0"
 
 [checks.centroid]
 severity = "gating"
 tier = "layout"
 tol = 0.04
-calibration = "normalized canvas units (~25px at 640px); absorbs the ~4-5px ggplot2-vs-plotnine panel shift"
+calibration = "canvas fraction; ggplot2/plotnine panels differ ~5px"
 
 [checks.shape_size]
 severity = "gating"
 tier = "layout"
 tol = 6.0
 rel_tol = 0.12
-calibration = "pt; fail if |Δ| > max(tol, rel_tol * reference size)"
+calibration = "pt, or rel_tol × R size"
 
 [checks.line_count]
 severity = "gating"
@@ -59,7 +59,7 @@ tol = 0
 [checks.line_breaks]
 severity = "advisory"
 tier = "layout"
-calibration = "advisory: per-line word membership when line counts agree; cross-engine hinting legitimately moves wrap points"
+calibration = "wrap points move with hinting"
 
 [checks.text_overflow]
 severity = "gating"
@@ -71,39 +71,39 @@ calibration = "pt beyond the frame"
 severity = "gating"
 tier = "layout"
 tol = 2.0
-calibration = "pt; added after mutation testing (v2), calibrated on the 8 clean pairs only: max clean |Δ| 1.21pt"
+calibration = "pt; clean max 1.21"
 
 [checks.sup_sub_offset]
 severity = "gating"
 tier = "layout"
 tol = 1.5
-calibration = "pt; only R scripts with |voff| >= tol are checked; candidate must keep the sign with |voff| >= 1pt"
+calibration = "pt; only |offset| ≥ tol"
 
 # ---- style ----
 [checks.text_color]
 severity = "gating"
 tier = "style"
 tol = 6.0
-calibration = "CIEDE2000; clean pairs 0"
+calibration = "CIEDE2000; clean max 0"
 
 [checks.text_alpha]
 severity = "gating"
 tier = "style"
 tol = 0.05
-calibration = "effective alpha (colour alpha x gpar/gc alpha); clean pairs: max |Δ| 0.0 over 501 matched runs (both example ports (plotnine-ggtext 2948266, ggtext-shanellis a1b9aa9) on all 16 library cases, 2026-11-19); mutants M13/M14: 1.0/0.95"
+calibration = "clean max 0"
 
 [checks.text_visible]
 severity = "gating"
 tier = "inventory"
 min = 0.5
-calibration = "min share of a candidate run's extent inside its clip rect and the canvas ('mostly outside' fails); clean pairs: min 1.0 over 501 runs (both example ports (plotnine-ggtext 2948266, ggtext-shanellis a1b9aa9) on all 16 library cases, 2026-11-19); mutants M12/M15: 0.0"
+calibration = "share inside clip; clean min 1.0"
 
 [checks.ink_present]
 severity = "gating"
 tier = "inventory"
 tol = 32
 min = 1
-calibration = "tol = contrast (0-255, max over RGB) vs the commonest colour inside the run's rotated rectangle grown by 1px; min = ink pixels required. Clean pairs: min 1 px at contrast 32 (a lone 11pt '.'), next 2 px, over 413 distinct candidate runs (both example ports (plotnine-ggtext 2948266, ggtext-shanellis a1b9aa9) on all 16 library cases, 2026-11-19). Mutants M13/M14/M15: 0 px in 26/27 runs; the 27th lies on the case's geom_point dot (a pixel backstop can't tell whose ink it sees)"
+calibration = "contrast 0–255; min ink px; clean min 1px"
 
 [checks.font_weight]
 severity = "gating"
@@ -117,21 +117,21 @@ tier = "style"
 severity = "gating"
 tier = "style"
 tol = 0.6
-calibration = "pt; R 3.88mm = 11.04pt vs plotnine 11.0pt baseline"
+calibration = "pt; R 11.04 vs plotnine 11.0"
 
 [checks.fill_color]
 severity = "gating"
 tier = "style"
 tol = 6.0
 alpha_tol = 0.05
-calibration = "tol: CIEDE2000. alpha_tol: effective face alpha; clean pairs max |Δ| 0.0 over 57 matched frames (both example ports (plotnine-ggtext 2948266, ggtext-shanellis a1b9aa9) on all 16 library cases, 2026-11-19); mutant M16: 0.75"
+calibration = "CIEDE2000; alpha clean max 0"
 
 [checks.edge_color]
 severity = "gating"
 tier = "style"
 tol = 6.0
 alpha_tol = 0.05
-calibration = "tol: CIEDE2000. alpha_tol: effective stroke alpha; clean pairs max |Δ| 0.0 over 57 matched frames (both example ports (plotnine-ggtext 2948266, ggtext-shanellis a1b9aa9) on all 16 library cases, 2026-11-19)"
+calibration = "CIEDE2000; alpha clean max 0"
 
 [checks.rounded_corners]
 severity = "gating"
@@ -140,3 +140,9 @@ tier = "style"
 [checks.raw_markup_leak]
 severity = "gating"
 tier = "inventory"
+
+[checks.chrome_position]
+severity = "gating"
+tier = "layout"
+tol = 0.10
+calibration = "fraction of the panel; coarse on purpose (wrong alignment, side or order)"

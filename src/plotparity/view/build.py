@@ -95,6 +95,31 @@ def _label(rep: dict, project) -> str:
     return f"{Path(rep.get('project', '?')).name} · {pkg}" + (f"@{commit}" if commit else "")
 
 
+def _settings(rep: dict, project) -> dict:
+    """Every check's settings as used by this run, which values the project overrides, and known differences."""
+    overrides, known, files = {}, [], {}
+    if project is not None:
+        from .. import adapters
+        from ..compare import load_known
+        overrides = project.cfg.get("profile", {}).get("checks", {}) or {}
+        files["defaults"] = str(adapters.load(project.adapter_name).PROFILE)
+        files["project"] = str(project.config_path) if project.config_path else None
+        kp = project.known_differences_path()
+        files["known"] = str(kp)
+        try:
+            known = load_known(kp)
+        except Exception as exc:                      # noqa: BLE001 — show it, don't break the viewer
+            known = [{"error": str(exc)}]
+    fails: dict[str, int] = {}
+    for c in rep.get("cases", []):
+        for f in c.get("findings", []):
+            if f.get("status") == "fail":
+                fails[f["check"]] = fails.get(f["check"], 0) + 1
+    checks = [{"name": name, **{k: v for k, v in e.items()}, "overridden": sorted(overrides.get(name, {})),
+               "fails": fails.get(name, 0)} for name, e in (rep.get("profile") or {}).items()]
+    return {"checks": checks, "known": known, "files": files}
+
+
 def build(report_files: list[Path], out: Path) -> Path:
     from ..project import Project
 
@@ -133,6 +158,7 @@ def build(report_files: list[Path], out: Path) -> Path:
                      "status": rep.get("status"), "selection": rep.get("selection"),
                      "package": project.package if project else "", "candidate": rep.get("candidate", {}),
                      "known_unused": rep.get("known_differences_unused", []), "cases": cases,
+                     "settings": _settings(rep, project),
                      "report_path": str(rf)})
     data = {"runs": runs, "cases": case_meta, "sizes": sizes}
     html = TEMPLATE.read_text()

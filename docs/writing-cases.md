@@ -58,7 +58,7 @@ ggplot(df, aes("x", "y", label="label")) + geom_richtext()
 | --- | --- |
 | `expect.components` | How many labelled boxes the R render should contain. `validate` checks this against the R reference. |
 | `expect.frame` | Whether boxes have a visible frame. Frame checks (padding, corners) only run when it's true. |
-| `expect.measurable` | `false` for features the checker can't extract yet (e.g. theme elements). Such a case reports `unmeasured`, never a pass. |
+| `expect.measurable` | `false` for features the checker can't extract yet (e.g. `<img>` content). Such a case reports `unmeasured`, never a pass. |
 | `data` | The one shared data table. |
 | ```` ```r ```` | The spec. Its last expression must be the plot. |
 | ```` ```python ```` | The Python version. Tag it with an import name (```` ```python plotnine_ggtext ````) when several packages with different APIs share the cases; an untagged block is used by any package without its own. |

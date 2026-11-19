@@ -27,6 +27,7 @@ A cases folder selects it with `adapter = "<name>"` in its `cases.toml`; plotpar
 | `component_id(i, comp)` | stable id from the reference side, used in findings and fingerprints |
 | `describe_component(comp)` | what to print for a missing or unexpected component |
 | `match(ref, cand)` | returns `(pairs, missing, unexpected)`. Must not use the properties under test, and must refuse pairs above a maximum cost |
+| `in_scope(comp, reference)` | optional: drop candidate components the reference has no counterpart for (ggtext: plain titles are plotnine's own) |
 | `CHECKS` | extension-specific checks: `check(ref, cand, profile_entry, add, expect)`; return `False` when it doesn't apply to the pair |
 
 Components use the core keys wherever they apply, so the core checks (colour, size, rotation, placement, visibility…) work unchanged:

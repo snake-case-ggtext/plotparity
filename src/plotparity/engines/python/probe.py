@@ -130,6 +130,10 @@ class RecordingRendererProxy:
         self.events: list[dict[str, Any]] = []
         self.groups_seen: list[str] = []
         self.owner_stack: list[int] = []     # indices into record()'s owner list; [0] = the top-level artist
+        self.role_stack: list[dict] = []     # theme-element role of the artist being drawn (innermost wins)
+
+    def _role(self) -> dict:
+        return dict(self.role_stack[-1]) if self.role_stack else {}
 
     def _owner(self) -> int | None:
         return self.owner_stack[0] if self.owner_stack else None
@@ -184,7 +188,7 @@ class RecordingRendererProxy:
             self.events.append({
                 "kind": "path",
                 "paint_index": self._paint_index,
-                "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(),
+                "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(), **self._role(),
                 "bbox_norm_tl": bb_tl,
                 "width_px": round(x1 - x0, 2),
                 "height_px": round(y1 - y0, 2),
@@ -255,7 +259,7 @@ class RecordingRendererProxy:
         self.events.append({
             "kind": "text",
             "paint_index": self._paint_index,
-            "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(),
+            "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(), **self._role(),
             "text": str(s),
             "x_norm": xn,
             "y_norm": yn,
@@ -303,7 +307,7 @@ def _draw_image(self, gc, x, y, im, transform=None):
     self.events.append({
         "kind": "image",
         "paint_index": self._paint_index,
-        "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(),
+        "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(), **self._role(),
         "bbox_norm_tl": bb,
         "w_px": w_px,
         "h_px": h_px,
@@ -330,7 +334,7 @@ def _route_recorder(route: str):
         self.events.append({
             "kind": route,
             "paint_index": self._paint_index,
-            "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(),
+            "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(), **self._role(),
             "clip_bbox_norm_tl": (bbox_bl_to_norm_tl(clip.x0, clip.y0, clip.x1, clip.y1, self._fig_w, self._fig_h)
                                   if clip is not None else None),
         })
@@ -354,6 +358,59 @@ def top_level_artists(fig) -> list[tuple[Any, str]]:
     out = [(a, "figure") for a in fig.get_children() if not isinstance(a, Axes)]
     for ax in fig.axes:
         out += [(a, "axes") for a in ax.get_children()]
+    return out
+
+
+# ── theme-element roles: which plotnine artist draws which ggplot2 theme element ──
+_TARGET_ROLES = {
+    "plot_title": "plot.title", "plot_subtitle": "plot.subtitle", "plot_caption": "plot.caption", "plot_tag": "plot.tag",
+    "axis_title_x": "axis.title.x.bottom", "axis_title_y": "axis.title.y.left",
+    "legend_title": "legend.title", "legend_text_legend": "legend.text", "legend_text_colorbar": "legend.text",
+    "strip_text_x": "strip.text.x.top", "strip_text_y": "strip.text.y.right",
+    # backgrounds drawn inside a strip text's draw(): tagged so they're never mistaken for an in-panel box
+    "strip_background_x": "strip.background.x", "strip_background_y": "strip.background.y",
+}
+_GUIDE_ROLES = {"legend_title": "legend.title", "legend_text_legend": "legend.text", "legend_text_colorbar": "legend.text"}
+
+
+def _plot_of(fig):
+    """The ggplot object behind a plotnine figure (via its layout engine, possibly wrapped by a package)."""
+    eng, seen = fig.get_layout_engine(), 0
+    while eng is not None and seen < 5:
+        if hasattr(eng, "plot") and hasattr(eng.plot, "theme"):
+            return eng.plot
+        eng = next((v for v in vars(eng).values() if hasattr(v, "plot") or "LayoutEngine" in type(v).__name__), None)
+        seen += 1
+    return None
+
+
+def role_artists(fig) -> list[tuple[Any, str, int]]:
+    """[(artist, ggplot2 theme role, index)] for every themed artist of a plotnine figure.
+
+    Uses the artists plotnine itself applies each theme element to (theme.targets, each guide's own theme, the
+    axes' tick labels), so a package that implements theme elements by styling plotnine's artists is covered
+    without knowing the package. Relies on plotnine 0.15 internals (pinned by tests/test_roles.py).
+    """
+    plot = _plot_of(fig)
+    out: list[tuple[Any, str, int]] = []
+    if plot is None:
+        return out
+    targets = plot.theme.targets
+    for attr, role in _TARGET_ROLES.items():
+        v = getattr(targets, attr, None)
+        for i, a in enumerate(v if isinstance(v, list) else ([v] if v is not None else [])):
+            out.append((a, role, i))
+    for _scale, guide in getattr(getattr(plot, "guides", None), "_lookup", {}).values():
+        gt = getattr(getattr(guide, "theme", None), "targets", None)
+        for attr, role in _GUIDE_ROLES.items():
+            v = getattr(gt, attr, None) if gt is not None else None
+            for i, a in enumerate(v if isinstance(v, list) else ([v] if v is not None else [])):
+                out.append((a, role, i))
+    for ax in fig.axes:
+        if hasattr(ax, "xaxis"):
+            for axis, role in ((ax.xaxis, "axis.text.x.bottom"), (ax.yaxis, "axis.text.y.left")):
+                for i, t in enumerate(axis.get_major_ticks()):
+                    out.append((t.label1, role, i))
     return out
 
 
@@ -384,11 +441,30 @@ def record(fig) -> tuple[dict[str, Any], np.ndarray]:
 
         wrapped.append((artist, "draw" in vars(artist), orig))
         artist.draw = draw
+    roles = []
+    try:
+        role_list = role_artists(fig)
+    except Exception as exc:                # never let role mapping break a render; roles just stay unknown
+        role_list, roles = [], [{"error": f"{type(exc).__name__}: {exc}"}]
+    for artist, role, idx in role_list:
+        rk = len(roles)
+        roles.append({"role": role, "role_index": idx, "class": type(artist).__name__})
+        orig = artist.draw
+
+        def rdraw(renderer, *a, _orig=orig, _tag={"role": role, "role_index": idx, "role_artist": rk}, **kw):
+            proxy.role_stack.append(_tag)
+            try:
+                return _orig(renderer, *a, **kw)
+            finally:
+                proxy.role_stack.pop()
+
+        wrapped.append((artist, "draw" in vars(artist), orig))
+        artist.draw = rdraw
     try:
         base.clear()                       # what FigureCanvasAgg.draw does before drawing
         fig.draw(proxy)
     finally:
-        for artist, had, orig in wrapped:
+        for artist, had, orig in reversed(wrapped):     # role wrappers sit on top of owner wrappers
             if had:
                 artist.draw = orig
             else:
@@ -403,6 +479,7 @@ def record(fig) -> tuple[dict[str, Any], np.ndarray]:
         "dpi": float(fig.dpi),
         "panels_norm_tl": panels,
         "owners": owners,
+        "roles": roles,
         "events": proxy.events,
         "groups_seen": sorted(set(proxy.groups_seen)),
         "extraction_ms": round((time.perf_counter() - t0) * 1000, 2),

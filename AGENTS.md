@@ -15,14 +15,14 @@ Worked example and the ggtext benchmark: [plotparity-examples](https://github.co
 ## State
 
 - **Commands:** `run`, `view`, `init`, `new-case`, `references`, `validate`, `selftest` and `loop` all work. A bare `plotparity run` inside a package repo with `./parity/` needs no config.
-- **One adapter: ggtext** (`geom_richtext`, `geom_textbox`).
+- **One adapter: ggtext:** `geom_richtext`, `geom_textbox`, and the theme elements `element_markdown` / `element_textbox`.
 - **Tests:** `uv run pytest -q`, about 60 tests in roughly 30 s. They use `tests/fixtures/`, which is 5 ggtext cases with their R references, copied from plotparity-examples. The package under test comes from `PLOTPARITY_TEST_PORT` (default: plotnine-ggtext at a pinned commit; set it to a local checkout to run offline).
 - **plotparity-examples, `projects/ggtext`** (plotnine-ggtext):
   - dev and holdout all match R;
   - the coverage split is the backlog (theme elements, `<img>`, R colour names, `~sub~`/`^sup^`);
   - `validate` passes;
   - `selftest`: all 16 mutations are caught, each with a visible pixel change; the negative control passes; batch and `--isolate` agree.
-- **plotparity-examples, `projects/ggtext-shanellis`** (a second ggtext package): 2 of 16 match, 10 differ, 4 are unmeasured.
+- **plotparity-examples, `projects/ggtext-shanellis`** (a second ggtext package): 10 of 28 match, 17 differ, 1 is unmeasured (`<img>`).
 
 ## Rules for changing plotparity
 
@@ -51,14 +51,11 @@ Worked example and the ggtext benchmark: [plotparity-examples](https://github.co
 
 ## Open issues
 
-- **Theme elements (titles, axis labels, strips, legends) aren't extracted yet.** Those cases report `unmeasured`.
-  - A spike showed it's feasible on both engines, with this design:
-    - **R side:** roles come from the forced gtable names.
-    - **Python side:** events are tagged by wrapping the artists plotnine applies each themeable to (`theme.targets`, guides), with a `gid="ggrole:<role>"` hook for packages.
-    - **Positions:** compared relative to the panel edge, not the canvas.
-    - **New checks:** `chrome_position`, `chrome_padding`, `chrome_line_count`.
-  - Its tolerances come from 23 pairs on one package; recalibrate them before freezing.
-  - The spike's code is in the maintainers' research folder (not published).
+- **Theme elements ("chrome")** are deliberately checked coarsely.
+  - **How:** R roles come from the forced gtable's cell names (`extract_chrome` in observe.R). Python draw events are tagged with a role by wrapping the artists plotnine applies each theme element to (`role_artists` in the probe; plotnine internals pinned by `tests/test_roles.py`).
+  - **Scope and pairing:** only roles that are rich text in R are compared (`in_scope`), paired by order along the canvas.
+  - **Checks:** the usual text, style and frame checks; padding only top/bottom unless both boxes are the same width; line count only when widths match; `chrome_position` fails beyond 10% of the panel.
+  - **Not done:** fine placement. There is no known-good package for theme elements, so they aren't mutation-tested; the tolerances are the geom ones.
 - **`<img>` content isn't compared.** Python records `draw_image`, but the R probe doesn't extract raster grobs.
 - **Facets and multiple panels:** segmentation reads the first panel only.
 - **Ownership limits:**

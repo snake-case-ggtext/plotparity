@@ -149,6 +149,22 @@ table.mx{border-collapse:separate;border-spacing:0;margin-top:14px;background:va
 .mx tr:last-child td{border-bottom:0}
 kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--surface)}
 .keys{font-size:11.5px;color:var(--ink-3);padding:10px 14px;border-top:1px solid var(--line);line-height:1.9}
+
+.drawer-bg{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:40;opacity:0;transition:opacity .14s ease-out}
+.drawer-bg.open{opacity:1} .drawer{transform:translateX(100%);transition:transform .16s ease-out} .drawer.open{transform:none}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(860px,100vw);background:var(--surface);border-left:1px solid var(--line);z-index:41;overflow:auto;padding:0 22px 40px;box-shadow:-8px 0 24px rgba(0,0,0,.12)}
+.drawer h2{font-size:17px;margin:0}
+.drawer .dhead{position:sticky;top:0;z-index:1;background:var(--surface);display:flex;justify-content:space-between;align-items:center;padding:14px 0 10px;border-bottom:1px solid var(--line)} .drawer h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);margin:20px 0 6px}
+.drawer table{width:100%;border-collapse:collapse;font-size:13px} .drawer td,.drawer th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.drawer th{font-size:11px;color:var(--ink-3);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.drawer .num{font-variant-numeric:tabular-nums;white-space:nowrap} .drawer .cal{color:var(--ink-3);font-size:12px}
+.sev-advisory{color:var(--ink-3)} .sev-off{color:var(--ink-3);text-decoration:line-through}
+.ovr{font-size:10.5px;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:0 4px;margin-left:4px}
+.drawer pre{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;overflow:auto}
+.off{font-size:11.5px;color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums;background:none;border:0;padding:0 2px;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}
+.drawer tr.hl td{background:var(--accent-soft)}
+#tip{position:fixed;z-index:50;pointer-events:none;background:color-mix(in srgb,var(--surface) 80%,var(--ink) 20%);color:var(--ink);border:1px solid var(--ink-3);border-radius:5px;padding:5px 9px;font-size:13.5px;line-height:1.45;box-shadow:0 4px 14px rgba(0,0,0,.35);display:none;white-space:nowrap}
+#tip b{font-family:var(--mono);font-weight:700} #tip .sub2{color:var(--ink-2)}
 </style>
 </head>
 <body>
@@ -241,7 +257,45 @@ function renderHeader(){
   $("#hdr").innerHTML = `<div class="hd-title"><div class="verdict">${verdict}</div>
     <div class="sub">${src} · ${esc((r.created||"").replace("T"," "))}${nOk?` · <span style="color:var(--pass)">${nOk} marked OK</span>`:""}</div></div>
     <div><div class="statbar">${bar}</div><div class="legend">${["pass","fail","unmeasured","infrastructure_error"].filter(s=>k[s]).map(s=>`<span><i class="dot st-${s}"></i>${k[s]} ${({pass:"match",fail:"differ",unmeasured:"not measured",infrastructure_error:"error"})[s]}</span>`).join("")}</div></div>
-    ${tabs}<button class="iconbtn" id="theme" title="Toggle theme">◐</button>`;
+    ${tabs}<button class="iconbtn" id="settingsBtn" title="Check settings: severities, tolerances, known differences">Settings</button><button class="iconbtn" id="theme" title="Toggle theme">◐</button>`;
+}
+
+/* ---------- settings panel ---------- */
+const NUMKEYS = [["tol","tol"],["rel_tol","relative tol"],["alpha_tol","alpha tol"],["min","min"]];
+function settingsHtml(){
+  const r = run(), st = r.settings || {checks:[], known:[], files:{}}, f = st.files || {};
+  const ov = (c, k) => c.overridden.includes(k) ? `<span class="ovr" title="set in parity.toml">project</span>` : "";
+  const rows = c => `<tr id="set-${esc(c.name)}"><td><code>${esc(c.name)}</code></td>
+      <td class="sev-${esc(c.severity)}">${esc(c.severity)}${ov(c,"severity")}</td>
+      <td class="num">${NUMKEYS.filter(([k])=>c[k]!==undefined && c[k]!==null).map(([k,l])=>`${l} ${esc(c[k])}${ov(c,k)}`).join("<br>") || '<span class="faint">—</span>'}</td>
+      <td class="num">${c.fails ? `<span style="color:var(--fail)">${c.fails}</span>` : '<span class="faint">0</span>'}</td>
+      <td class="cal">${esc(c.calibration||"")}</td></tr>`;
+  let h = `<div class="dhead"><div><h2>Settings</h2><div class="faint" style="font-size:12.5px">severity: gating = fails the case · advisory = report only · off = skipped</div></div><button class="iconbtn" id="settingsClose" title="Close (esc)" aria-label="Close">✕</button></div>`;
+  for (const [t, lab] of TIERS.concat([["", "Other"]])){
+    const cs = st.checks.filter(c => t ? c.tier===t : !TIERS.some(([x])=>x===c.tier)); if (!cs.length) continue;
+    h += `<h3>${lab}</h3><table><tr><th>Check</th><th>Severity</th><th>Tolerance</th><th>Fails</th><th>Calibration</th></tr>${cs.map(rows).join("")}</table>`;
+  }
+  h += `<h3>Known differences</h3>` + (st.known.length ? `<table><tr><th>Case</th><th>Check</th><th>Component</th><th>Reason</th></tr>${st.known.map(k=>k.error?`<tr><td colspan="4" style="color:var(--fail)">${esc(k.error)}</td></tr>`:`<tr><td><code>${esc(k.case)}</code></td><td><code>${esc(k.check)}</code></td><td>${esc(k.component||"any")}</td><td class="cal">${esc(k.reason)}</td></tr>`).join("")}</table>` : `<div class="faint" style="font-size:13px">None.</div>`);
+  h += `<h3>Change</h3><div style="font-size:13px"><code>${esc(f.project||"parity.toml")}</code></div>
+    <pre>[profile.checks.padding]\ntol = 3.0  # or severity = "advisory"</pre>
+    <div style="font-size:13px"><code>${esc(f.known||"known_differences.toml")}</code></div>
+    <pre>[[difference]]\ncase = "textbox_native_no_wrap"\ncheck = "padding"\nreason = "…"</pre>`;
+  return h;
+}
+function openSettings(check){
+  closeSettings();
+  const bg = document.createElement("div"); bg.className = "drawer-bg"; bg.id = "settingsBg";
+  const d = document.createElement("div"); d.className = "drawer"; d.id = "settings"; d.innerHTML = settingsHtml();
+  document.body.append(bg, d); S.settings = true;
+  requestAnimationFrame(() => { bg.classList.add("open"); d.classList.add("open"); });
+  const row = check && document.getElementById(`set-${check}`);
+  if (row) { row.classList.add("hl"); row.scrollIntoView({block:"center"}); }
+}
+function closeSettings(animate){
+  const d = $("#settings"), bg = $("#settingsBg"); S.settings = false;
+  if (!animate || !d) { d?.remove(); bg?.remove(); return; }
+  d.id = ""; bg.id = ""; d.classList.remove("open"); bg.classList.remove("open");
+  setTimeout(() => { d.remove(); bg.remove(); }, 170);
 }
 
 /* ---------- sidebar ---------- */
@@ -337,12 +391,34 @@ function viewerHtml(c){
   return bar + `<div class="panes one"><div><div class="cap"><b>R − ${esc(port)}</b></div>
     <div class="stage zoomable diff"><div class="inner2"><img src="${IMG[c.ref_img]}" alt="R"><div class="top"><img src="${IMG[c.cand_img]}" alt="port"></div></div></div></div></div>`;
 }
+function offHtml(f){   // "off by 3.1 · limit 2" for numeric findings with a tolerance
+  if (typeof f.delta!=="number" || typeof f.tol!=="number") return "";
+  const n = v => +Math.abs(v).toFixed(2), c = (run().settings?.checks||[]).find(x=>x.name===f.check);
+  return `<button class="off" data-setting="${esc(f.check)}" data-tol="${n(f.tol)}">Δ ${n(f.delta)} &gt; ${n(f.tol)}</button>`;
+}
+const UNITS = {padding:"pt", font_size:"pt", shape_size:"pt", text_overflow:"pt", sup_sub_offset:"pt", rotation:"°",
+  text_color:" ΔE", fill_color:" ΔE", edge_color:" ΔE", line_count:" lines", centroid:" of canvas"};
+function showTip(el){
+  const c = (run().settings?.checks||[]).find(x=>x.name===el.dataset.setting); if (!c) return;
+  let t = $("#tip"); if (!t) { t = document.createElement("div"); t.id = "tip"; document.body.append(t); }
+  const unit = UNITS[c.name] || "", tol = (+el.dataset.tol).toFixed(unit==="pt"?1:2).replace(/\.?0+$/, m => unit==="pt" ? ".0" : "");
+  t.innerHTML = `<b>${esc(c.name)}</b><div>tolerance: ${esc(tol)}${unit}${c.overridden.includes("tol")?" (parity.toml)":""}</div>`
+    + `<div>${c.fails} fail${c.fails===1?"":"s"}${c.severity!=="gating"?` · ${esc(c.severity==="advisory"?"report only":c.severity)}`:""}</div>`
+    + (c.calibration ? `<div class="sub2">${esc(c.calibration.replace(/^pt;\s*/,""))}</div>` : "");
+  t.style.display = "block";
+  const r = el.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight;
+  t.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width/2 - w/2)) + "px";
+  t.style.top = (r.top - h - 8 < 8 ? r.bottom + 8 : r.top - h - 8) + "px";
+}
+const hideTip = () => { const t = $("#tip"); if (t) t.style.display = "none"; };
+document.addEventListener("mouseover", e => { const el = e.target.closest("[data-setting]"); el ? showTip(el) : hideTip(); });
+document.addEventListener("scroll", hideTip, true);
 function findingHtml(f, i){
   const c = caseOf(run(), S.case), isOk = f.status==="fail" && (OK.has(okKey(c,i)) || OK.has(okKey(c)));
   const okb = f.status==="fail" ? `<button class="okbtn" data-ok="${i}" aria-pressed="${isOk}" title="Mark this finding OK (a)">${isOk?"✓ OK":"OK"}</button>` : "";
   const cls = (isOk ? "okd " : "") + (f.status==="known_difference" ? "known" : f.status==="unmeasured" ? "unm" : f.status==="infrastructure_error" ? "infra" : f.status==="fail" ? "fail" : "info");
   const eo = (f.expected!==undefined || f.observed!==undefined) && f.status!=="unmeasured" && !["render_error","missing_api","case_error","needs_translation"].includes(f.check)
-    ? `<div class="eo"><span><span class="lbl">R</span> ${fmtVal(f.expected)}</span><span class="faint">→</span><span><span class="lbl">py</span> ${fmtVal(f.observed)}</span></div>` : "<div></div>";
+    ? `<div class="eo"><span><span class="lbl">R</span> ${fmtVal(f.expected)}</span><span class="faint">→</span><span><span class="lbl">py</span> ${fmtVal(f.observed)}</span>${offHtml(f)}</div>` : "<div></div>";
   const tb = f.traceback ? `<details><summary class="faint" style="font-size:12px;cursor:pointer">traceback</summary><pre class="tb">${esc(f.traceback)}</pre></details>` : "";
   const why = f.status==="known_difference" && f.known_reason ? `<div class="faint" style="font-size:12px;margin-top:3px">Known difference: ${esc(f.known_reason)}</div>` : "";
   return `<div class="f ${cls} ${S.finding===i?'sel':''}" data-f="${i}"><i class="mk"></i>
@@ -436,9 +512,14 @@ function readHash(){ const p = new URLSearchParams(location.hash.slice(1));
   if (p.get("ov")==="1") S.overview = true; else if (p.has("case")) { S.case = p.get("case"); S.overview = false; }
   if (p.has("f")) S.finding = +p.get("f"); if (p.has("mode")) S.mode = p.get("mode"); }
 document.addEventListener("click", e => {
+  if (S.settings && !e.target.closest("#settings")) { closeSettings(true); return; }
   const okb = e.target.closest("[data-ok],[data-okcase]");
   if (okb){ e.stopPropagation(); const c = caseOf(run(), S.case); if (!c) return;
     const k = okb.dataset.okcase ? okKey(c) : okKey(c, +okb.dataset.ok); OK.has(k) ? OK.delete(k) : OK.add(k); refreshOk(); return; }
+  if (e.target.closest("#settingsBtn")) { openSettings(); return; }
+  const sb = e.target.closest("[data-setting]"); if (sb) { e.stopPropagation(); hideTip(); openSettings(sb.dataset.setting); return; }
+  if (e.target.closest("#settingsClose")) { closeSettings(true); return; }
+  if (e.target.closest("#settings")) return;
   const t = e.target.closest("[data-case],[data-run],[data-ov],[data-filter],[data-mode],[data-step],[data-f],[data-cell],#theme"); if (!t) return;
   if (t.id==="theme"){ const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"); document.documentElement.dataset.theme = cur==="dark"?"light":"dark"; try{localStorage.setItem("pp-theme",document.documentElement.dataset.theme);}catch(_){} return; }
   if (t.dataset.case) return selectCase(t.dataset.case);
@@ -458,6 +539,7 @@ function stepFinding(d){ const c = caseOf(run(), S.case); if (!c || !c.findings.
   document.querySelectorAll(".f").forEach(x=>x.classList.toggle("sel", +x.dataset.f===S.finding)); document.querySelector(".f.sel")?.scrollIntoView({block:"nearest"}); }
 document.addEventListener("keydown", e => {
   if (e.target.matches("input,textarea")) { if (e.key==="Escape") e.target.blur(); return; }
+  if (S.settings) { if (e.key==="Escape") closeSettings(true); return; }
   const k = e.key;
   if (k==="/"){ e.preventDefault(); $("#q").focus(); return; }
   if (k==="j"||k==="ArrowDown") { e.preventDefault(); step(1); }

@@ -23,7 +23,8 @@ r_hex <- function(v, default) {
 }
 
 adapter_observe <- function(p, w_in, h_in, dpi) {
-  list(ggtext_grobs = extract_r_grob_semantics(p, w_in, h_in, dpi))
+  list(ggtext_grobs = extract_r_grob_semantics(p, w_in, h_in, dpi),
+       ggtext_chrome = extract_chrome(p, w_in, h_in, dpi))
 }
 
 extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
@@ -255,3 +256,186 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
   )
 }
 
+
+# ───────────── theme elements (titles, axis text, strips, legend text) ─────────────
+# Walks the forced gtable from the root, pushing each grob's viewport, and maps each gtable cell path
+# ("axis-b/axis", "guide-box-right/guides/label-2-3", ...) to a ggplot2 theme role. A gTree of gridtext.* grobs is
+# one rich-text label ("rich"); a plain text grob in a theme cell is "plain" (not compared). Sizes in bigpts.
+
+.r_hex <- function(v, default) {
+  if (is.null(v) || length(v) == 0 || is.na(v[1])) return(default)
+  v <- as.character(v[1])
+  if (v %in% c("none", "transparent", "NA")) return("none")
+  rgba <- tryCatch(grDevices::col2rgb(v, alpha = TRUE)[, 1], error = function(e) NULL)
+  if (is.null(rgba)) return(v)
+  if (rgba[4] == 0) return("none")
+  if (rgba[4] < 255) sprintf("#%02X%02X%02X%02X", rgba[1], rgba[2], rgba[3], rgba[4]) else
+    sprintf("#%02X%02X%02X", rgba[1], rgba[2], rgba[3])
+}
+
+# gtable cell path -> ggplot2 theme role. NA = not a text role (backgrounds, panels, ...).
+chrome_role <- function(path) {
+  top <- path[1]
+  if (is.na(top)) return(NA_character_)
+  if (top %in% c("title", "subtitle", "caption", "tag")) return(paste0("plot.", top))
+  m <- regmatches(top, regexec("^axis-([tblr])", top))[[1]]
+  if (length(m)) return(switch(m[2], b = "axis.text.x.bottom", t = "axis.text.x.top",
+                                     l = "axis.text.y.left", r = "axis.text.y.right"))
+  m <- regmatches(top, regexec("^([xy])lab-([tblr])", top))[[1]]
+  if (length(m)) return(paste0("axis.title.", m[2], ".",
+                               switch(m[3], b = "bottom", t = "top", l = "left", r = "right")))
+  m <- regmatches(top, regexec("^strip-([tblr])", top))[[1]]
+  if (length(m)) return(if (m[2] %in% c("t", "b")) paste0("strip.text.x.", ifelse(m[2] == "t", "top", "bottom"))
+                        else paste0("strip.text.y.", ifelse(m[2] == "r", "right", "left")))
+  if (startsWith(top, "guide-box")) {
+    leaf <- path[length(path)]
+    if (startsWith(leaf, "title")) return("legend.title")
+    if (startsWith(leaf, "label")) return("legend.text")
+    return(NA_character_)
+  }
+  NA_character_
+}
+
+extract_chrome <- function(p, width_in, height_in, dpi) {
+  t0 <- proc.time()[["elapsed"]]
+  tmp <- tempfile(fileext = ".png")
+  on.exit(unlink(tmp), add = TRUE)
+  agg_png(tmp, width = width_in, height = height_in, units = "in", res = dpi)
+  on.exit(if (dev.cur() > 1) dev.off(), add = TRUE)
+
+  g <- ggplotGrob(p)
+  grid.newpage()
+  grid.draw(g)
+  grid.force()
+  dloc <- function(x, y) {           # current viewport -> canvas-normalised, top-left origin
+    loc <- deviceLoc(x, y, valueOnly = TRUE)
+    c(round(loc$x / width_in, 5), round(1 - loc$y / height_in, 5))
+  }
+  # Panel bboxes FIRST: walking pushes copies of the gtable viewports; pushing a viewport whose name
+  # already exists replaces the existing one and popping deletes it, so the original vp tree is gone after.
+  panels <- list()
+  vps <- grid.ls(viewports = TRUE, grobs = FALSE, print = FALSE)$name
+  for (pv in unique(grep("^panel", vps, value = TRUE))) {
+    seekViewport(pv)
+    bl <- dloc(unit(0, "npc"), unit(0, "npc")); tr <- dloc(unit(1, "npc"), unit(1, "npc"))
+    panels[[length(panels) + 1]] <- c(bl[1], tr[2], tr[1], bl[2])
+  }
+  upViewport(0)
+  top <- grid.get("layout")          # the forced gtable (gtable_gTree names it "layout")
+
+  vp_angle <- function(vp) {
+    if (inherits(vp, "viewport")) return(if (is.null(vp$angle)) 0 else as.numeric(vp$angle))
+    if (inherits(vp, "vpStack") || inherits(vp, "vpList")) return(sum(vapply(vp, vp_angle, 0)))
+    if (inherits(vp, "vpTree")) return(vp_angle(vp$parent))   # children are siblings; parent rotates
+    0
+  }
+  cell_re <- "^(.+)\\.(\\d+)-(\\d+)-(\\d+)-(\\d+)$"
+
+  comps <- list()
+  emit <- function(x) comps[[length(comps) + 1]] <<- x
+
+  run_info <- function(ch, angle) {
+    # one gridtext.text / plain text grob -> list of runs (plain text grobs may be vectorised)
+    out <- list()
+    lbl <- as.character(ch$label)
+    if (!length(lbl)) return(out)
+    pushed <- 0
+    if (!is.null(ch$vp)) { pushViewport(ch$vp); pushed <- depth(ch$vp) }
+    n <- length(lbl)
+    xs <- rep_len(ch$x, n); ys <- rep_len(ch$y, n)
+    font <- if (is.null(ch$gp$font)) 1L else as.integer(ch$gp$font)
+    rot <- if (is.null(ch$rot)) 0 else as.numeric(ch$rot)
+    for (i in seq_len(n)) {
+      if (!nzchar(lbl[i])) next
+      w_pt <- convertWidth(grobWidth(textGrob(lbl[i], gp = ch$gp)), "bigpts", valueOnly = TRUE)
+      h_pt <- convertHeight(grobHeight(textGrob(lbl[i], gp = ch$gp)), "bigpts", valueOnly = TRUE)
+      # baseline-left anchor (what matplotlib's draw_text receives). gridtext runs already are
+      # (hjust = vjust = 0); plain titleGrob/axis text is justified, so undo hjust/vjust along `rot`.
+      hj <- if (is.null(ch$hjust)) 0.5 else rep_len(as.numeric(ch$hjust), n)[i]
+      vj <- if (is.null(ch$vjust)) 0.5 else rep_len(as.numeric(ch$vjust), n)[i]
+      th <- rot * pi / 180
+      dx <- -hj * w_pt * cos(th) + vj * h_pt * sin(th)
+      dy <- -hj * w_pt * sin(th) - vj * h_pt * cos(th)
+      a <- dloc(xs[i] + unit(dx, "bigpts"), ys[i] + unit(dy, "bigpts"))
+      f <- rep_len(font, n)[i]
+      out[[length(out) + 1]] <- list(
+        text = lbl[i], x_norm = a[1], y_norm = a[2],
+        hjust = if (is.null(ch$hjust)) NA else rep_len(as.numeric(ch$hjust), n)[i],
+        vjust = if (is.null(ch$vjust)) NA else rep_len(as.numeric(ch$vjust), n)[i],
+        width_pt = round(w_pt, 3),
+        color = .r_hex(rep_len(ch$gp$col, n)[i], "#000000"),
+        fontsize_pt = if (is.null(ch$gp$fontsize)) NA else round(rep_len(as.numeric(ch$gp$fontsize), n)[i], 3),
+        fontweight = if (f %in% c(2, 4)) "bold" else "normal",
+        fontstyle = if (f %in% c(3, 4)) "italic" else "normal",
+        fontfamily = if (is.null(ch$gp$fontfamily)) "" else as.character(ch$gp$fontfamily)[1],
+        alpha = if (is.null(ch$gp$alpha) || is.na(ch$gp$alpha[1])) 1 else as.numeric(ch$gp$alpha[1]),
+        angle_deg = round(((angle + rot + 180) %% 360) - 180, 3))
+    }
+    if (pushed) popViewport(pushed)
+    out
+  }
+
+  rect_info <- function(ch) {
+    pushed <- 0
+    if (!is.null(ch$vp)) { pushViewport(ch$vp); pushed <- depth(ch$vp) }
+    on.exit(if (pushed) popViewport(pushed))
+    if (inherits(ch, "polygon")) {
+      xl <- convertX(ch$x, "bigpts", valueOnly = TRUE); yl <- convertY(ch$y, "bigpts", valueOnly = TRUE)
+      loc <- deviceLoc(ch$x, ch$y, valueOnly = TRUE)
+      xs <- loc$x / width_in; ys <- 1 - loc$y / height_in
+      nv <- length(xl)
+    } else {                          # rect (r = 0) or unforced roundrect
+      hj <- resolveHJust(ch$just, ch$hjust); vj <- resolveVJust(ch$just, ch$vjust)
+      x0 <- ch$x - hj * ch$width; y0 <- ch$y - vj * ch$height
+      cs <- rbind(dloc(x0, y0), dloc(x0 + ch$width, y0), dloc(x0 + ch$width, y0 + ch$height), dloc(x0, y0 + ch$height))
+      xs <- cs[, 1]; ys <- cs[, 2]
+      xl <- c(0, convertWidth(ch$width, "bigpts", valueOnly = TRUE)); yl <- c(0, convertHeight(ch$height, "bigpts", valueOnly = TRUE))
+      nv <- if (!is.null(ch$r) && convertUnit(ch$r, "bigpts", valueOnly = TRUE) > 0.01) 51L else 4L
+    }
+    list(width_pt = round(max(xl) - min(xl), 3), height_pt = round(max(yl) - min(yl), 3),
+         vertex_count = nv, is_rounded = nv > 6,
+         fill = .r_hex(ch$gp$fill, "none"),
+         # border is invisible when lty is blank/0 (element_textbox_simple default) or lwd is 0
+         col = if (!is.null(ch$gp$lty) && as.character(ch$gp$lty[1]) %in% c("0", "blank")) "none"
+               else if (!is.null(ch$gp$lwd) && as.numeric(ch$gp$lwd[1]) <= 0) "none" else .r_hex(ch$gp$col, "none"),
+         lty = if (is.null(ch$gp$lty)) NA else as.character(ch$gp$lty[1]),
+         lwd = if (is.null(ch$gp$lwd)) NA else as.numeric(ch$gp$lwd),
+         bbox_norm_tl = round(c(min(xs), min(ys), max(xs), max(ys)), 5))
+  }
+
+  walk <- function(gr, path, angle) {
+    if (is.null(gr)) return(invisible())
+    pushed <- 0
+    if (!is.null(gr$vp)) { pushViewport(gr$vp); pushed <- depth(gr$vp); angle <- angle + vp_angle(gr$vp) }
+    on.exit(if (pushed) popViewport(pushed), add = TRUE)
+    nm <- if (is.null(gr$name)) "" else gr$name
+    m <- regmatches(nm, regexec(cell_re, nm))[[1]]
+    if (length(m)) path <- c(path, m[2])
+    role <- chrome_role(path)
+
+    if (inherits(gr, "gTree") && length(gr$children)) {
+      cn <- names(gr$children)
+      if (any(grepl("^gridtext\\.", cn))) {          # one rich-text label (one richtext/textbox "box")
+        runs <- list(); rect <- NULL
+        for (ch in gr$children) {
+          if (inherits(ch, "text")) runs <- c(runs, run_info(ch, angle))
+          else if (inherits(ch, "polygon") || inherits(ch, "roundrect") || inherits(ch, "rect")) rect <- rect_info(ch)
+        }
+        emit(list(kind = "rich", role = role, cell_path = paste(path, collapse = "/"),
+                  grob = nm, angle_deg = round(((angle + 180) %% 360) - 180, 3), rect = rect, text_runs = runs))
+        return(invisible())
+      }
+      for (ch in gr$children) walk(ch, path, angle)
+    } else if (inherits(gr, "text") && !is.na(role)) {   # plain element_text chrome
+      runs <- run_info(gr, angle)
+      for (r in runs) emit(list(kind = "plain", role = role, cell_path = paste(path, collapse = "/"),
+                                grob = nm, angle_deg = r$angle_deg, rect = NULL, text_runs = list(r)))
+    }
+    invisible()
+  }
+  walk(top, character(), 0)
+
+  upViewport(0)
+  list(engine = "r", panels_norm_tl = panels, components = comps,
+       gtable_cells = unique(g$layout$name), extraction_ms = round((proc.time()[["elapsed"]] - t0) * 1000, 1))
+}

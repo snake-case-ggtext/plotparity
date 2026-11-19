@@ -441,6 +441,8 @@ def evaluate_case(case, adapter, profile: dict, known: list[dict], ref: dict, ca
         obs = cand["observations"]
         rc, _ = adapter.components("r", ref["observations"], expect, canvas_pt)
         cc, assigned = adapter.components("python", obs, expect, canvas_pt)
+        if hasattr(adapter, "in_scope"):         # e.g. ggtext: theme elements only for roles rich in the reference
+            cc = [c for c in cc if adapter.in_scope(c, rc)]
         for side, comps in (("reference", rc), ("candidate", cc)):
             for i, comp in enumerate(comps):
                 assert_finite(comp, f"{side} component {i + 1}")

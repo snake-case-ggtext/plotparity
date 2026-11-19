@@ -81,6 +81,8 @@ def _segment_python(obs: dict[str, Any]) -> tuple[list[dict], set[int]]:
 
     parts: dict[tuple, list[dict]] = {}
     for ev in events:
+        if "role" in ev:
+            continue                                   # theme elements: see _chrome_python
         parts.setdefault(_partition_key(ev), []).append(ev)
     boxes, assigned = [], set()
     for key, evs in parts.items():
@@ -123,8 +125,11 @@ def components(engine: str, obs: dict[str, Any], expect: dict[str, Any],
     """Return (components, paint indices of the candidate events assigned to them; empty for the reference)."""
     if engine == "python":
         boxes, assigned = _segment_python(obs)
+        chrome, chrome_assigned = _chrome_python(obs, canvas_pt)
+        assigned |= chrome_assigned
     elif engine == "r":
         boxes, assigned = (obs.get("ggtext_grobs") or {}).get("boxes") or [], set()
+        chrome = _chrome_r(obs, canvas_pt)
     else:
         raise ValueError(f"ggtext adapter has no extractor for engine {engine!r}")
     comps = []
@@ -134,19 +139,47 @@ def components(engine: str, obs: dict[str, Any], expect: dict[str, Any],
         if not expect.get("frame", True):
             c["rect"] = None            # the case says this geom draws no frame: frame checks don't apply
         comps.append(c)
-    return comps, assigned
+    return comps + chrome, assigned
 
 
 def component_id(i: int, comp: dict) -> str:
+    if comp.get("role"):
+        return f"{comp['role']}[{comp['ordinal'] + 1}:{comp['full_text'][:24]!r}]"
     return f"box[{i + 1}:{comp['full_text'][:24]!r}]"
 
 
 def describe_component(comp: dict) -> dict:
     """What the core prints for a component it can't pair (missing or unexpected)."""
+    if comp.get("role"):
+        return {"role": comp["role"], "text": comp["full_text"]}
     return {"text": comp["full_text"], "centroid_norm_tl": comp["centroid_norm_tl"]}
 
 
+def in_scope(comp: dict, reference: list[dict]) -> bool:
+    """Candidate theme elements are compared only for roles that are rich text in the reference: plain titles and
+    axis labels are plotnine's own. (A package that leaves a rich role plain is still caught: same role.)"""
+    return not comp.get("role") or comp["role"] in {r.get("role") for r in reference}
+
+
 def match(ref: list[dict], cand: list[dict]) -> tuple[list[tuple[int, int]], list[int], list[int]]:
+    """In-panel boxes: Hungarian on position + shared words. Theme elements: within a role, by order along the
+    panel edge they sit on (never by the properties under test)."""
+    rb = [i for i, c in enumerate(ref) if not c.get("role")]
+    cb = [j for j, c in enumerate(cand) if not c.get("role")]
+    pairs, missing, unexpected = _match_boxes([ref[i] for i in rb], [cand[j] for j in cb])
+    pairs = [(rb[i], cb[j]) for i, j in pairs]
+    missing, unexpected = [rb[i] for i in missing], [cb[j] for j in unexpected]
+    roles = {c["role"] for c in ref + cand if c.get("role")}
+    for role in sorted(roles):
+        ri = sorted((i for i, c in enumerate(ref) if c.get("role") == role), key=lambda i: ref[i]["ordinal"])
+        ci = sorted((j for j, c in enumerate(cand) if c.get("role") == role), key=lambda j: cand[j]["ordinal"])
+        pairs += list(zip(ri, ci))
+        missing += ri[len(ci):]
+        unexpected += ci[len(ri):]
+    return pairs, sorted(missing), sorted(unexpected)
+
+
+def _match_boxes(ref: list[dict], cand: list[dict]) -> tuple[list[tuple[int, int]], list[int], list[int]]:
     if not ref or not cand:
         return [], list(range(len(ref))), list(range(len(cand)))
     cost = np.zeros((len(ref), len(cand)))
@@ -204,6 +237,8 @@ def sup_sub_offset(r, c, P, add, expect):
 
 
 def line_count(r, c, P, add, expect):
+    if r.get("role") and not _same_box_width(r, c):
+        return False                    # a theme element's box width comes from the layout, and wrapping with it
     if len(r["lines"]) != len(c["lines"]):
         add("line_count", len(r["lines"]), len(c["lines"]),
             f"Line wrap count mismatch: expected {len(r['lines'])} lines, observed {len(c['lines'])}.",
@@ -245,15 +280,142 @@ def padding(r, c, P, add, expect):
     rr, cr = r.get("rect"), c.get("rect")
     if not (expect.get("frame", True) and rr and cr and rr.get("has_visible_frame") and r.get("insets_pt") and c.get("insets_pt")):
         return False
-    for key in ("left", "bottom_to_last_baseline", "top_to_first_baseline"):
+    # A theme element's box may take its width from the layout (element_textbox spans the panel); its horizontal
+    # inset is comparable only when both boxes have the same width.
+    keys = ("left", "bottom_to_last_baseline", "top_to_first_baseline")
+    if r.get("role") and not _same_box_width(r, c):
+        keys = keys[1:]
+    for key in keys:
         ev, ov = r["insets_pt"][key], c["insets_pt"][key]
         if exceeds(abs(ov - ev), P["tol"], "padding"):
             add("padding", ev, ov, f"Text-to-frame inset ({key.replace('_', ' ')}) is {ov:.1f}pt, expected {ev:.1f}pt.",
                 delta=round(ov - ev, 2), sub=key)
 
 
+def chrome_position(r, c, P, add, expect):
+    """Coarse placement of a theme element along and away from the panel edge it hangs off, as a fraction of the
+    panel. Engines lay out titles, axes and legends differently by design, so only gross errors fail: wrong
+    alignment (left vs centred), wrong side, wrong order."""
+    if not r.get("role"):
+        return False
+    rl, cl = r["layout_rel"], c["layout_rel"]
+    for key, label in (("along", "along"), ("perp", "away from")):
+        d = round(cl[key] - rl[key], 4)
+        if exceeds(abs(d), P["tol"], "chrome_position"):
+            add("chrome_position", rl[key], cl[key],
+                f"{r['role']} is {abs(d):.0%} of the panel {'further' if d > 0 else 'less far'} {label} the panel's "
+                f"{rl['side']} edge than in R.", delta=d, sub=key)
+
+
 CHECKS = {f.__name__: f for f in (raw_markup_leak, sup_sub_offset, line_count, line_breaks, text_overflow,
-                                   rounded_corners, padding)}
+                                   rounded_corners, padding, chrome_position)}
+
+
+# ───────────────────────────── theme elements ("chrome") ─────────────────────────────
+# Titles, axis labels, strips and legend text drawn by element_markdown()/element_textbox(). R: the gtable walker in
+# observe.R (stream ggtext_chrome). Python: draw events tagged with a theme role by the probe.
+
+SIDE = {"plot.title": "top", "plot.subtitle": "top", "plot.caption": "bottom", "plot.tag": "top",
+        "axis.text.x.bottom": "bottom", "axis.title.x.bottom": "bottom", "axis.text.x.top": "top",
+        "axis.title.x.top": "top", "axis.text.y.left": "left", "axis.title.y.left": "left",
+        "axis.text.y.right": "right", "axis.title.y.right": "right",
+        "strip.text.x.top": "top", "strip.text.x.bottom": "bottom", "strip.text.y.right": "right",
+        "strip.text.y.left": "left", "legend.title": "right", "legend.text": "right"}
+_NON_TEXT_ROLES = {"strip.background.x", "strip.background.y"}
+
+
+def _same_box_width(r: dict, c: dict, tol_pt: float = 2.0) -> bool:
+    rw = (r.get("rect") or {}).get("unrotated_width_pt")
+    cw = (c.get("rect") or {}).get("unrotated_width_pt")
+    return (rw is None and cw is None) or (rw is not None and cw is not None and abs(rw - cw) <= tol_pt)
+
+
+def _frame(role: str, anchor: tuple[float, float], panels: list[list[float]]) -> list[float]:
+    """The owning panel (strips, axis text on facetted plots) or the whole panel area."""
+    area = [min(p[0] for p in panels), min(p[1] for p in panels), max(p[2] for p in panels), max(p[3] for p in panels)]
+    if not role.startswith(("strip.", "axis.text.")) or len(panels) < 2:
+        return area
+    side, (cx, cy) = SIDE.get(role, "top"), anchor
+    along = (lambda p: p[0] <= cx <= p[2]) if side in ("top", "bottom") else (lambda p: p[1] <= cy <= p[3])
+    edge = {"top": lambda p: abs(p[1] - cy), "bottom": lambda p: abs(p[3] - cy),
+            "left": lambda p: abs(p[0] - cx), "right": lambda p: abs(p[2] - cx)}[side]
+    return min([p for p in panels if along(p)] or panels, key=edge)
+
+
+def _finish_chrome(comps: list[dict], panels: list[list[float]]) -> list[dict]:
+    """Anchor, layout-relative position and ordinal within the role. The anchor is a visible box's centre, else the
+    first word's baseline start (exact on both engines)."""
+    out = []
+    for c in comps:
+        if not c["text_runs"]:
+            continue
+        if c["rect"] and c["rect"]["has_visible_frame"]:
+            ax, ay = c.pop("centroid_norm_tl")
+        else:
+            c.pop("centroid_norm_tl")
+            ax, ay = c["text_runs"][0]["x_norm"], c["text_runs"][0]["y_norm"]
+        side = SIDE.get(c["role"], "top")
+        f = _frame(c["role"], (ax, ay), panels) if panels else [0.0, 0.0, 1.0, 1.0]
+        w, h = max(f[2] - f[0], 1e-6), max(f[3] - f[1], 1e-6)
+        if side in ("top", "bottom"):
+            along, perp = (ax - f[0]) / w, ((f[1] - ay) if side == "top" else (ay - f[3])) / h
+        else:
+            along, perp = (ay - f[1]) / h, ((f[0] - ax) if side == "left" else (ax - f[2])) / w
+        c["anchor_norm_tl"] = [round(ax, 5), round(ay, 5)]
+        c["layout_rel"] = {"side": side, "along": round(along, 4), "perp": round(perp, 4)}
+        out.append(c)
+    for role in {c["role"] for c in out}:
+        # order along the canvas (not the frame: each facet's strip sits mid-way along its own panel)
+        horiz = SIDE.get(role, "top") in ("top", "bottom")
+        same = sorted((c for c in out if c["role"] == role),
+                      key=lambda c: (c["anchor_norm_tl"][0], c["anchor_norm_tl"][1]) if horiz
+                      else (c["anchor_norm_tl"][1], c["anchor_norm_tl"][0]))
+        for k, c in enumerate(same):
+            c["ordinal"] = k
+    return out
+
+
+def _chrome_r(obs: dict[str, Any], canvas_pt: tuple[float, float]) -> list[dict]:
+    st = obs.get("ggtext_chrome") or {}
+    comps = []
+    for raw in st.get("components") or []:
+        if raw.get("kind") != "rich" or not raw.get("role"):
+            continue                    # plain chrome is plotnine's own; rich grobs outside theme cells are geoms
+        box = {"angle_deg": raw.get("angle_deg", 0.0), "rect": raw.get("rect"),
+               "text_runs": [dict(t) for t in raw.get("text_runs") or []]}
+        _enrich_box_geometry(box, canvas_pt[0], canvas_pt[1], 72.0)     # local (unrotated) coordinates for lines
+        c = _normalize_box(box, "r", canvas_pt)
+        c["role"] = raw["role"]
+        comps.append(c)
+    return _finish_chrome(comps, st.get("panels_norm_tl") or [])
+
+
+def _chrome_python(obs: dict[str, Any], canvas_pt: tuple[float, float]) -> tuple[list[dict], set[int]]:
+    fig_w, fig_h = obs["figure_px"]
+    by_artist: dict[int, list[dict]] = {}
+    assigned = set()
+    for ev in obs["events"]:
+        if "role" in ev:
+            assigned.add(ev["paint_index"])
+            if ev["role"] not in _NON_TEXT_ROLES:
+                by_artist.setdefault(ev["role_artist"], []).append(ev)
+    comps = []
+    for evs in by_artist.values():
+        texts = [e for e in evs if e["kind"] == "text" and str(e.get("text", "")).strip()]
+        if not texts:
+            continue
+        paths = [e for e in evs if e["kind"] == "path"
+                 and (e.get("facecolor_hex", "none") != "none" or e.get("edgecolor_hex", "none") != "none")]
+        p = max(paths, key=lambda e: e["width_px"] * e["height_px"]) if paths else None
+        box = {"angle_deg": texts[0]["angle_deg"],
+               "rect": {k: v for k, v in p.items() if k != "vertices_norm_tl"} if p else None,
+               "rect_vertices_norm_tl": p["vertices_norm_tl"] if p else None,
+               "text_runs": [dict(t) for t in texts]}
+        _enrich_box_geometry(box, fig_w, fig_h, obs["dpi"])
+        c = _normalize_box(box, "python", canvas_pt)
+        c["role"] = texts[0]["role"]
+        comps.append(c)
+    return _finish_chrome(comps, obs.get("panels_norm_tl") or []), assigned
 
 
 # ───────────────── from experiment/compare.py + experiment/probes.py (changes noted inline) ─────────────────
