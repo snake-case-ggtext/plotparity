@@ -37,6 +37,8 @@ plotparity run path/to/cases --from git+https://github.com/someone/plotnine-foo@
 
 `run` finds the package, installs it with its dependencies into a cached environment, renders any missing R references, compares, and writes a report to `.plotparity/runs/` (`report.md`, `report.json`, `report.html`). `--open` opens the HTML report, which shows R and Python side by side (also blink, swipe and difference) with each finding outlined on both images.
 
+Cases plotparity can't measure yet (theme elements, `<img>`) are compared by eye. **OK** marks a finding or a whole case as reviewed. Marks are saved in your browser and tied to that exact render, so they carry over to later runs until the render changes.
+
 | Option | |
 | --- | --- |
 | `PATH …` | case folders or `.md` files (default: `./parity/`) |

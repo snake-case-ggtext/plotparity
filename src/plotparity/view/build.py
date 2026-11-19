@@ -23,6 +23,17 @@ from typing import Any
 TEMPLATE = Path(__file__).with_name("template.html")
 
 
+def _pixel_hash(path: str | Path | None) -> str | None:
+    """Short hash of a render's pixels: the viewer's OK marks are tied to it, so they reset when the render changes."""
+    if not path or not Path(path).exists():
+        return None
+    import hashlib
+
+    from PIL import Image
+    im = Image.open(path).convert("RGBA")
+    return hashlib.sha256(repr(im.size).encode() + im.tobytes()).hexdigest()[:16]
+
+
 def _img(path: str | Path | None) -> tuple[str, list[int] | None]:
     if not path or not Path(path).exists():
         return "", None
@@ -115,6 +126,7 @@ def build(report_files: list[Path], out: Path) -> Path:
                 case_meta[cid] = {"why": case.why, "relpath": case.relpath, "r": case.r_code,
                                   "python": case.python, "source": case.front_matter.get("source", "")}
             cases.append({**{k: c.get(k) for k in ("case", "relpath", "split", "status", "findings", "known")},
+                          "render_hash": _pixel_hash(c.get("candidate_png")),
                           "ref_img": ref_key if images.get(ref_key) else "",
                           "cand_img": cand_key if images.get(cand_key) else "", "geom": geom})
         runs.append({"id": run_id, "label": _label(rep, project), "created": rep.get("created"),

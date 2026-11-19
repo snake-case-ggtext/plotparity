@@ -172,13 +172,18 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const STATUS = {pass:"Matches R", fail:"Differs", unmeasured:"Not measured", infrastructure_error:"Error"};
 const SPLITS = ["dev","holdout","coverage"];
 const TIERS = [["inventory","Content"],["layout","Layout"],["style","Style"]];
-const OK = new Set();   // reviewed-OK marks: "run|case" or "run|case|findingIndex" (memory only, never saved)
-const okKey = (c, i) => `${S.run}|${c.case}` + (i==null ? "" : `|${i}`);
+// Reviewed-OK marks, kept in this browser's localStorage. Keyed by package, case and a hash of the package's
+// render, so a mark carries over to later runs and disappears as soon as the render changes.
+const OK_STORE = "plotparity-ok";
+const OK = (() => { try { return new Set(JSON.parse(localStorage.getItem(OK_STORE) || "[]")); } catch (e) { return new Set(); } })();
+function saveOk(){ try { localStorage.setItem(OK_STORE, JSON.stringify([...OK])); } catch (e) {} }
+const okKey = (c, i, runIdx=S.run) => `${D.runs[runIdx].package}|${c.case}|${c.render_hash||"no-render"}`
+  + (i==null ? "" : `|${c.findings[i].fingerprint || i}`);
 function failIdx(c){ return c.findings.map((f,i)=>[f,i]).filter(([f])=>f.status==="fail").map(([,i])=>i); }
 function caseOk(c, runIdx=S.run){
   if (!c || c.status==="pass") return false;
-  if (OK.has(`${runIdx}|${c.case}`)) return true;
-  const idx = failIdx(c); return idx.length>0 && c.status==="fail" && idx.every(i=>OK.has(`${runIdx}|${c.case}|${i}`));
+  if (OK.has(okKey(c, null, runIdx))) return true;
+  const idx = failIdx(c); return idx.length>0 && c.status==="fail" && idx.every(i=>OK.has(okKey(c, i, runIdx)));
 }
 const S = {run:0, case:null, filter:"all", q:"", mode:"side", outlines:false, zoom:true, finding:null, overview: D.runs.length>1, swap:false, blinkT:null};
 
@@ -335,7 +340,7 @@ function viewerHtml(c){
 function findingHtml(f, i){
   const c = caseOf(run(), S.case), isOk = f.status==="fail" && (OK.has(okKey(c,i)) || OK.has(okKey(c)));
   const okb = f.status==="fail" ? `<button class="okbtn" data-ok="${i}" aria-pressed="${isOk}" title="Mark this finding OK (a)">${isOk?"✓ OK":"OK"}</button>` : "";
-  const cls = (isOk ? "okd " : "") + f.status==="known_difference" ? "known" : f.status==="unmeasured" ? "unm" : f.status==="infrastructure_error" ? "infra" : f.status==="fail" ? "fail" : "info";
+  const cls = (isOk ? "okd " : "") + (f.status==="known_difference" ? "known" : f.status==="unmeasured" ? "unm" : f.status==="infrastructure_error" ? "infra" : f.status==="fail" ? "fail" : "info");
   const eo = (f.expected!==undefined || f.observed!==undefined) && f.status!=="unmeasured" && !["render_error","missing_api","case_error","needs_translation"].includes(f.check)
     ? `<div class="eo"><span><span class="lbl">R</span> ${fmtVal(f.expected)}</span><span class="faint">→</span><span><span class="lbl">py</span> ${fmtVal(f.observed)}</span></div>` : "<div></div>";
   const tb = f.traceback ? `<details><summary class="faint" style="font-size:12px;cursor:pointer">traceback</summary><pre class="tb">${esc(f.traceback)}</pre></details>` : "";
@@ -374,7 +379,7 @@ function renderCase(){
     <div id="findings">${findingsHtml(c)}</div>`;
   wireViewer();
 }
-function refreshOk(){ const y = $("#main").scrollTop ?? 0; renderList(); renderHeader(); $("#findings").innerHTML = findingsHtml(caseOf(run(), S.case));
+function refreshOk(){ saveOk(); const y = $("#main").scrollTop ?? 0; renderList(); renderHeader(); $("#findings").innerHTML = findingsHtml(caseOf(run(), S.case));
   const hb = document.querySelector("[data-okcase]"); if (hb){ const c = caseOf(run(), S.case); hb.setAttribute("aria-pressed", caseOk(c)); hb.textContent = caseOk(c) ? "✓ Case marked OK" : "Mark case OK"; } }
 function rerenderViewer(){ const c = caseOf(run(), S.case); if (!c) return; $("#viewer").innerHTML = viewerHtml(c); wireViewer(); }
 
