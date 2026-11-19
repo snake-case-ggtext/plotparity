@@ -124,6 +124,7 @@ Then a ```` ```r ```` block (the spec), and zero or more ```` ```python <package
 - Before each case: resets rcParams, pins fonts, and resets the plotnine theme.
 - Draws once to let plotnine finalize layout, then draws **once more through the recording proxy on the Agg renderer and saves `candidate.png` from that same buffer**, so the image and the observations come from one draw. (Accepted after checking that these PNGs are pixel-identical to the previous `savefig` PNGs for all 27 rendered cases of both example packages.)
 - Records every `draw_*` route (`draw_path`, `draw_text`, `draw_image` decoded; `draw_path_collection`, `draw_markers`, `draw_quad_mesh`, `draw_gouraud_triangles`, `draw_tex` recorded by name), with paint order, group stack, clip, panel bbox, effective alpha, and the **owner** of each event (§5, "Ownership").
+- Tags each event drawn by a themed artist with its ggplot2 **role** (`plot.title`, `axis.text.x.bottom`, `strip.text.x.top`, `legend.text`, …). The themed artists are the ones plotnine applies each theme element to: `theme.targets`, each guide's own theme, the axes' tick labels. These are plotnine 0.15 internals, pinned by `tests/test_roles.py`.
 - Then draws once more with the package's top-level artists hidden and records `port_ink_px`: how many panel pixels the package's artists changed. This diagnostic pass never feeds the PNG or the observations.
 
 **R script**
@@ -160,6 +161,13 @@ Known limit: a package that adds plain matplotlib artists (e.g. `ax.text`) strai
 3. Keep that partition's text and images, plus closed paths strictly inside the panel. This excludes the panel background.
 4. A frame path starts a new box, and the text that follows belongs to it.
 5. The adapter returns the paint indices of the events it assigned; the core applies the ownership rule to the rest.
+
+**ggtext theme elements.** Role-tagged events never enter the segmentation above; they are assigned.
+- **Components:** one per themed artist that drew text. R gets the same from the forced gtable: each cell name maps to a role, and a gTree of `gridtext.*` grobs is one rich label.
+- **Scope:** only roles that are rich text in R are compared (`in_scope`). Plain titles are plotnine's own; a package that leaves a rich role plain is still caught, because the role is the same.
+- **Pairing:** within a role, by order along the canvas.
+- **Position:** measured relative to the panel edge the role hangs off. `chrome_position` is coarse (10% of the panel); fine placement differs between ggplot2 and plotnine by design.
+- **Width-dependent checks:** horizontal padding and line count apply only when both boxes have the same width, since an `element_textbox` takes its width from the layout.
 
 ```python
 # adapter module
@@ -270,6 +278,8 @@ Each finding has a fingerprint, `case|check|ref_component`. With `--previous`, c
 | anything else (component unmatched, case unmeasured or errored, check not applicable or unmeasured) | `gone` |
 
 If the harness hash differs from the previous report's, the report says so and names the changed parts.
+
+**`report.html`**, for people: side by side, blink, swipe and difference views with findings outlined; a Settings panel with every check's severity, tolerance, failure count and calibration, plus the known differences; and OK marks kept in the browser, tied to each render's pixels.
 
 **`report.md`**, for agents:
 - status

@@ -66,6 +66,13 @@ Exit codes: `0` all match, `1` something differs, `2` something wasn't measured 
 
 If a difference is real but not your package's fault (for example, ggplot2 and plotnine lay out panels slightly differently), add it to `known_differences.toml` with the reason. It's then reported but no longer fails the run.
 
+To change what counts as close enough for one project, override a check in `parity.toml`; the report's **Settings** panel lists every check with its tolerance and failure count:
+
+```toml
+[profile.checks.padding]
+tol = 3.0                 # or severity = "advisory": reported, never fails a case
+```
+
 ## Writing test plots
 
 A case is one Markdown file: a shared data table, the R code, and the Python code.
@@ -105,7 +112,7 @@ A pass means the checks passed for the cases that could be measured. For each th
 - **how text looks:** colour, opacity, weight, style, size, superscript/subscript offsets, and that it's visible (not clipped, actually inked);
 - **layout:** rotation, placement, box size, padding, line count, overflow;
 - **frames:** fill and outline colour and opacity, rounded corners;
-- **theme elements** (`element_markdown`, `element_textbox` on titles, axis labels, strips, legend text): the same text, style and frame checks, top/bottom padding, and a coarse position check (off by more than 10% of the panel along or away from its edge).
+- **theme elements** (`element_markdown`, `element_textbox` on titles, axis labels, strips, legend text): the same text, style, frame and padding checks, and a coarse position check (off by more than 10% of the panel along or away from its edge).
 
 Not checked yet:
 
