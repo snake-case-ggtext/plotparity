@@ -1,0 +1,109 @@
+# ggtext adapter profile: the single source of truth for which checks run, how strictly, and how important.
+# severity: gating | advisory | off      tier: inventory | layout | style (orders feedback; fix lower tiers first)
+# Every tolerance was frozen BEFORE mutation testing and calibrated on clean R/Python pairs only
+# (experiment/REPORT.md, "frozen threshold profile"). Changing a tolerance: re-calibrate on clean pairs, then selftest.
+
+# ---- inventory (core) ----
+[checks.component_count]
+severity = "gating"
+tier = "inventory"
+calibration = "exact count"
+
+[checks.missing_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_drawing]
+severity = "gating"
+tier = "inventory"
+calibration = "fail closed: candidate draw calls inside the richtext group through routes the adapter doesn't decode"
+
+[checks.text_content]
+severity = "gating"
+tier = "inventory"
+
+# ---- layout ----
+[checks.rotation]
+severity = "gating"
+tier = "layout"
+tol = 2.0
+calibration = "degrees; clean pairs differ by 0"
+
+[checks.centroid]
+severity = "gating"
+tier = "layout"
+tol = 0.04
+calibration = "normalized canvas units (~25px at 640px); absorbs the ~4-5px ggplot2-vs-plotnine panel shift"
+
+[checks.shape_size]
+severity = "gating"
+tier = "layout"
+tol = 6.0
+rel_tol = 0.12
+calibration = "pt; fail if |Δ| > max(tol, rel_tol * reference size)"
+
+[checks.line_count]
+severity = "gating"
+tier = "layout"
+tol = 0
+
+[checks.text_overflow]
+severity = "gating"
+tier = "layout"
+tol = 3.0
+calibration = "pt beyond the frame"
+
+[checks.padding]
+severity = "gating"
+tier = "layout"
+tol = 2.0
+calibration = "pt; added after mutation testing (v2), calibrated on the 8 clean pairs only: max clean |Δ| 1.21pt"
+
+[checks.sup_sub_offset]
+severity = "gating"
+tier = "layout"
+tol = 1.5
+calibration = "pt; only R scripts with |voff| >= tol are checked; candidate must keep the sign with |voff| >= 1pt"
+
+# ---- style ----
+[checks.text_color]
+severity = "gating"
+tier = "style"
+tol = 6.0
+calibration = "CIEDE2000; clean pairs 0"
+
+[checks.font_weight]
+severity = "gating"
+tier = "style"
+
+[checks.font_style]
+severity = "gating"
+tier = "style"
+
+[checks.font_size]
+severity = "gating"
+tier = "style"
+tol = 0.6
+calibration = "pt; R 3.88mm = 11.04pt vs plotnine 11.0pt baseline"
+
+[checks.fill_color]
+severity = "gating"
+tier = "style"
+tol = 6.0
+
+[checks.edge_color]
+severity = "gating"
+tier = "style"
+tol = 6.0
+
+[checks.rounded_corners]
+severity = "gating"
+tier = "style"
+
+[checks.raw_markup_leak]
+severity = "gating"
+tier = "inventory"
