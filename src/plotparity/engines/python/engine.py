@@ -69,7 +69,7 @@ def environment(python: str, port: Port | None = None) -> dict:
 
 
 def render(cases: list[Case], port: Port, package: str, api: list[str], render_cfg: dict, assets_dir: Path,
-           out_dir: Path, python: str, isolate: bool = False) -> dict:
+           out_dir: Path, python: str, isolate: bool = False, adapter: str | None = None) -> dict:
     """Render cases that have a python block for `package` (or a default block); callers skip the rest."""
     out_dir.mkdir(parents=True, exist_ok=True)
     for c in cases:
@@ -81,7 +81,7 @@ def render(cases: list[Case], port: Port, package: str, api: list[str], render_c
     log = []
     for group in groups:
         job = {"out_dir": str(out_dir), "package": package, "port_dir": str(port.package_parent / package),
-               "api": api, "render": render_cfg,
+               "api": api, "render": render_cfg, "adapter": adapter,
                "cases": [{"id": c.id, "file": str(c.path), "code": c.python_for(package), "data": c.table(assets_dir)}
                          for c in group]}
         job_file = out_dir / f"job_{group[0].id}.json"

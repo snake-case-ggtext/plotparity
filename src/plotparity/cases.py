@@ -113,7 +113,10 @@ def parse_case(path: Path, root: Path | None = None) -> Case:
         _, fm_text, body = text.split("---\n", 2)
     except ValueError:
         raise CaseError(f"{path}: unterminated front matter") from None
-    fm = load_yaml(fm_text) or {}
+    try:
+        fm = load_yaml(fm_text) or {}
+    except yaml.YAMLError as exc:
+        raise CaseError(f"{path}: front matter isn't valid YAML: {exc}".replace("\n", " ")) from None
     if "split" in fm:
         raise CaseError(f"{path}: `split` is not a case property; projects assign splits in parity.toml [splits]")
     unknown = set(fm) - _FM_KEYS

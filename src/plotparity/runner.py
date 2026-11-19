@@ -62,7 +62,7 @@ def run(project, selector: str | None, out: Path, source: str | None = None, pre
     render_dir = out / "render"
     translated = [c for c in cases if c.python_for(project.package) is not None]
     info = py_engine.render(translated, port, cand_cfg["package"], cand_cfg["api"], project.render_cfg,
-                            lib.assets_dir, render_dir, python, isolate=isolate)
+                            lib.assets_dir, render_dir, python, isolate=isolate, adapter=project.adapter_name)
     env = info["environment"]
     results = []
     for c in cases:

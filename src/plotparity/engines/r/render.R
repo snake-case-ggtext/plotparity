@@ -47,8 +47,9 @@ for (case in job$cases) {
     p <- eval(parse(text = case$code), envir = env)
     ggsave(file.path(cdir, "reference.png"), p, width = w_in, height = h_in, dpi = job$dpi, device = ragg::agg_png)
     obs <- adapter_observe(p, w_in, h_in, job$dpi)
-    # jsonlite's default digits (4 decimals) kept on purpose: identical to the research references.
-    write_json(obs, file.path(cdir, "observations.json"), auto_unbox = TRUE, pretty = TRUE)
+    # jsonlite's default digits (4 decimals) unless the adapter asks for more (adapter_json_digits; NA = full)
+    digits <- if (exists("adapter_json_digits")) adapter_json_digits else 4
+    write_json(obs, file.path(cdir, "observations.json"), auto_unbox = TRUE, pretty = TRUE, digits = digits)
     NULL
   }, error = function(e) e)
   if (!is.null(res)) {

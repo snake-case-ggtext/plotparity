@@ -15,14 +15,16 @@ Worked example and the ggtext benchmark: [plotparity-examples](https://github.co
 ## State
 
 - **Commands:** `run`, `view`, `init`, `new-case`, `references`, `validate`, `selftest` and `loop` all work. A bare `plotparity run` inside a package repo with `./parity/` needs no config.
-- **One adapter: ggtext:** `geom_richtext`, `geom_textbox`, and the theme elements `element_markdown` / `element_textbox`.
+- **Two adapters:**
+  - **ggtext:** `geom_richtext`, `geom_textbox`, and the theme elements `element_markdown` / `element_textbox`;
+  - **ggridges:** `geom_density_ridges` (incl. binline, quantile lines), `geom_ridgeline`. No known-good package, so it isn't in `selftest`; `tests/test_ggridges.py` covers its checks on synthetic observations.
 - **Tests:** `uv run pytest -q`. They use `tests/fixtures/`: a few ggtext cases with their R references, copied from plotparity-examples. The package under test comes from `PLOTPARITY_TEST_PORT` (default: plotnine-ggtext at a pinned commit; set it to a local checkout to run offline).
 - **plotparity-examples, `projects/ggtext`** (plotnine-ggtext):
   - dev and holdout all match R;
   - the coverage split is its backlog (R features it lacks);
   - `validate` passes;
   - `selftest`: every mutation is caught, each with a visible pixel change; the negative control passes; batch and `--isolate` agree.
-- **plotparity-examples, `projects/ggtext-shanellis`** (a second ggtext package): has real gaps; it's the example of a package that doesn't match yet.
+- **plotparity-examples, `projects/ggtext-shanellis`** (a second ggtext package) and **`projects/ridgenine`** (ggridges): packages with real gaps.
 
 ## Rules for changing plotparity
 
@@ -46,6 +48,8 @@ Worked example and the ggtext benchmark: [plotparity-examples](https://github.co
 
 - **`components(engine, observations, expect, canvas_pt)`** returns `(components, assigned)`, where `assigned` is the set of Python paint indices put into components.
 - **`in_scope(comp, reference)`** (optional) drops candidate components the reference has no counterpart for.
+- **`CASE_CHECKS`** (optional): whole-plot checks, `fn(ref_comps, cand_comps, pairs, P, add, expect)`.
+- **`observe_py.py`** (optional): `observe(fig, plot) -> dict`, merged into the Python observations; runs in the package's interpreter, so plotnine/pandas/numpy only.
 - **`describe_component(comp)`** is what the core prints for a missing or unexpected component.
 - **Checks** return `False` when they don't apply to a pair.
 - **Core keys:** `text_runs`, `rect`, `angle_deg`, `centroid_norm_tl`, `bbox_norm_tl`. The core runs a check only when its keys are present.
@@ -65,4 +69,4 @@ Worked example and the ggtext benchmark: [plotparity-examples](https://github.co
 - **`ink_present` can be fooled by other ink under a run.** In `richtext_example_markup`, a `geom_point` dot sits under the word "text". `text_alpha` and `text_visible` are the primary visibility checks.
 - **`_cluster_lines` in the ggtext adapter still has a 640×480 fallback.** It's unused today, because both engines always provide local coordinates.
 - **Managed environments are keyed by their requirement list,** which includes the package path. Editing a local package's *dependencies* needs a fresh environment: delete `~/.cache/plotparity/envs/<key>`. Code changes are picked up anyway, because the source comes first on `PYTHONPATH`.
-- **A ggridges adapter** (polygons, KDE statistics, paint order) has a working pilot in the research folder, and `docs/writing-adapters.md` lists what it needs.
+- **ggridges:** gradient fills (`geom_density_ridges_gradient`), jittered points and facets aren't covered; only the first layer's built data is read.

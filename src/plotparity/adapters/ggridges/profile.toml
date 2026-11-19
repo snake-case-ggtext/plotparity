@@ -1,0 +1,102 @@
+# ggridges adapter profile. Positions are in points (data units × the panel's pt per unit), so a tolerance reads as
+# "visible or not". There is no known-good plotnine port of ggridges to calibrate on; the research pilot's faithful
+# port matched R to machine precision, so these are set at about a pixel, not from clean maxima.
+
+[checks.component_count]
+severity = "gating"
+tier = "inventory"
+calibration = "exact count of ridges (plus shapes on no ridge)"
+
+[checks.missing_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_drawing]
+severity = "gating"
+tier = "inventory"
+
+[checks.extractor_blind]
+severity = "gating"
+tier = "inventory"
+
+[checks.ridge_pieces]
+severity = "gating"
+tier = "inventory"
+calibration = "exact count of filled pieces and outlines"
+
+[checks.paint_order]
+severity = "gating"
+tier = "layout"
+calibration = "only overlapping neighbours"
+
+[checks.ridge_position]
+severity = "gating"
+tier = "layout"
+tol = 1.5
+calibration = "pt; about a pixel"
+
+[checks.density_curve]
+severity = "gating"
+tier = "layout"
+rel_tol = 0.01
+calibration = "share of the peak; R's binned KDE vs an exact one differs well below this"
+
+[checks.ridge_fill]
+severity = "gating"
+tier = "style"
+tol = 2.0
+alpha_tol = 0.02
+calibration = "CIEDE2000; alpha absolute"
+
+[checks.ridge_outline]
+severity = "gating"
+tier = "style"
+tol = 2.0
+alpha_tol = 0.02
+rel_tol = 0.05
+calibration = "CIEDE2000; alpha absolute; width relative"
+
+# text and frame checks don't apply to ridges
+[checks.text_content]
+severity = "off"
+tier = "inventory"
+[checks.text_color]
+severity = "off"
+tier = "style"
+[checks.text_alpha]
+severity = "off"
+tier = "style"
+[checks.font_weight]
+severity = "off"
+tier = "style"
+[checks.font_style]
+severity = "off"
+tier = "style"
+[checks.font_size]
+severity = "off"
+tier = "style"
+[checks.text_visible]
+severity = "off"
+tier = "inventory"
+[checks.ink_present]
+severity = "off"
+tier = "inventory"
+[checks.rotation]
+severity = "off"
+tier = "layout"
+[checks.centroid]
+severity = "off"
+tier = "layout"
+[checks.fill_color]
+severity = "off"
+tier = "style"
+[checks.edge_color]
+severity = "off"
+tier = "style"
+[checks.shape_size]
+severity = "off"
+tier = "layout"

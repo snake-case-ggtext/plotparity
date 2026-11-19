@@ -100,7 +100,7 @@ def build_plot(code: str, data: dict | None, port, fname: str):
     return eval(compile(last, fname, "eval"), ns)
 
 
-def draw_plot(p, png: Path, dpi: int, width_px: int, height_px: int, package: str = ""):
+def draw_plot(p, png: Path, dpi: int, width_px: int, height_px: int, package: str = "", adapter: str | None = None):
     """Layout draw, then ONE recorded draw whose Agg buffer is saved as the PNG (image == observations).
     Then a diagnostic draw with the port's top-level artists hidden: `port_ink_px` counts panel pixels the
     port's artists changed (used when the adapter finds no components: ink → extractor blind, none → fail)."""
@@ -118,6 +118,9 @@ def draw_plot(p, png: Path, dpi: int, width_px: int, height_px: int, package: st
     fig.canvas.draw()                      # lets plotnine's layout engine finalize positions
     obs, rgba = record(fig)
     mimage.imsave(png, rgba, format="png", dpi=dpi)
+    hook = _adapter_hook(adapter)
+    if hook is not None:                   # adapter-specific Python observations (e.g. plotnine's built layer data)
+        obs.update(hook(fig, p))
     obs["port_ink_px"] = _port_ink(fig, package, rgba, obs)
     plt.close(fig)
     return obs
@@ -147,6 +150,21 @@ def _port_ink(fig, package: str, rgba, obs: dict) -> int | None:
     rows = slice(max(0, int(y0 * h)), min(h, int(np.ceil(y1 * h))))
     cols = slice(max(0, int(x0 * w)), min(w, int(np.ceil(x1 * w))))
     return int((np.abs(rgba[rows, cols, :3].astype(int) - other[rows, cols]).max(axis=-1) > 0).sum())
+
+
+def _adapter_hook(name: str | None):
+    """`observe(fig, plot) -> dict` from plotparity/adapters/<name>/observe_py.py, if the adapter has one. It runs in
+    the package's interpreter, so it may only import what that environment has (plotnine, pandas, numpy)."""
+    if not name:
+        return None
+    import importlib
+    try:
+        mod = importlib.import_module(f"plotparity.adapters.{name}.observe_py")
+    except ModuleNotFoundError as exc:
+        if exc.name == f"plotparity.adapters.{name}.observe_py":
+            return None
+        raise
+    return mod.observe
 
 
 def main(job_path: str) -> int:
@@ -192,7 +210,8 @@ def main(job_path: str) -> int:
             try:
                 p = build_plot(case["code"], case.get("data"), port, case["file"])
                 stage = "draw"
-                obs = draw_plot(p, cdir / "candidate.png", r["dpi"], r["width_px"], r["height_px"], package)
+                obs = draw_plot(p, cdir / "candidate.png", r["dpi"], r["width_px"], r["height_px"], package,
+                                job.get("adapter"))
                 obs["warnings"] = sorted({f"{w.category.__name__}: {w.message}" for w in caught})[:20]
                 obs["elapsed_ms"] = round((time.perf_counter() - t0) * 1000, 1)
                 (cdir / "observations.json").write_text(json.dumps(obs))

@@ -102,7 +102,9 @@ ggplot(df, aes("x", "y", label="label")) + geom_richtext(hjust=0) + xlim(0, 1) +
 
 ## Using it with a coding agent
 
-Point the agent at [skills/plotparity/SKILL.md](skills/plotparity/SKILL.md). It covers the run–fix loop, how to read findings, and the rules (edit only the package; never the cases, references or `known_differences.toml`). Agents usually want `--no-html`.
+Point the agent at [skills/plotparity/SKILL.md](skills/plotparity/SKILL.md). It covers the run–fix loop, how to read findings, and the rules (edit only the package; never the cases, references, tolerances or `known_differences.toml`). Agents usually want `--no-html`.
+
+The agent may *propose* changes to the bar (a tolerance, an advisory check, a known difference) with the evidence and a ready-to-paste snippet; you decide. Those rules are enforced only under `plotparity loop`, which hashes the cases, settings and known differences and fails an iteration if they change. Plain `plotparity run` doesn't check.
 
 ## What a pass means
 
@@ -124,11 +126,11 @@ Not checked yet:
 
 ## Other extensions
 
-Only ggtext is supported today. Supporting another extension means writing an adapter (what counts as a component, how to match them, which checks apply): see [docs/writing-adapters.md](docs/writing-adapters.md).
+Two adapters ship today: **ggtext** (rich-text labels and theme elements) and **ggridges** (ridgeline plots: each ridge's shape, density, fill, outline, pieces and which ridge is drawn on top). Supporting another extension means writing an adapter (what counts as a component, how to find components on both sides, how to pair them, which checks apply): see [docs/writing-adapters.md](docs/writing-adapters.md).
 
 ## Example
 
-[plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) has a set of ggtext cases and two ggtext packages tested against them, one that matches R and one with real gaps:
+[plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) has cases for ggtext and ggridges, and three packages tested against them: one that matches R and two with real gaps:
 
 ```bash
 git clone https://github.com/snake-case-ggtext/plotparity-examples

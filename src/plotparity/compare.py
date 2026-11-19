@@ -49,7 +49,7 @@ NUMERIC_KEYS = PROFILE_KEYS - {"severity", "tier", "calibration"}
 
 def load_profile(adapter, project_overrides: dict[str, dict]) -> dict[str, dict]:
     base = tomllib.loads(Path(adapter.PROFILE).read_text())["checks"]
-    known = set(CORE_CHECKS) | set(CASE_LEVEL) | set(adapter.CHECKS)
+    known = set(CORE_CHECKS) | set(CASE_LEVEL) | set(adapter.CHECKS) | set(getattr(adapter, "CASE_CHECKS", {}))
     for name, entry in list(base.items()) + list(project_overrides.items()):
         if name not in known:
             raise ProfileError(f"profile names unknown check {name!r} (known: {sorted(known)})")
@@ -501,6 +501,13 @@ def evaluate_case(case, adapter, profile: dict, known: list[dict], ref: dict, ca
                 ran(comp, names, fn(r, c, profile, add_pair, ctx) is not False)
             for name, fn in adapter.CHECKS.items():
                 ran(comp, (name,), fn(r, c, profile[name], add_pair, expect) is not False)
+
+        def add_case(check, expected, observed, message, delta=None, status="fail", sub=None):
+            add(check, f"{CASE}/{sub}" if sub else CASE, expected, observed, message, delta, status)
+
+        # whole-plot checks (e.g. paint order): fn(ref_components, cand_components, pairs, P, add, expect)
+        for name, fn in getattr(adapter, "CASE_CHECKS", {}).items():
+            ran(CASE, (name,), fn(rc, cc, pairs, profile[name], add_case, expect) is not False)
     except Exception as exc:  # noqa: BLE001  — a crashing check must never become a pass
         add("check_error", "comparator", None, f"{type(exc).__name__}: {exc}",
             f"Comparator raised {type(exc).__name__}: {exc}", status="infrastructure_error")

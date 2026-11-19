@@ -125,12 +125,13 @@ Then a ```` ```r ```` block (the spec), and zero or more ```` ```python <package
 - Draws once to let plotnine finalize layout, then draws **once more through the recording proxy on the Agg renderer and saves `candidate.png` from that same buffer**, so the image and the observations come from one draw.
 - Records every `draw_*` route (`draw_path`, `draw_text`, `draw_image` decoded; `draw_path_collection`, `draw_markers`, `draw_quad_mesh`, `draw_gouraud_triangles`, `draw_tex` recorded by name), with paint order, group stack, clip, panel bbox, effective alpha, and the **owner** of each event (§5, "Ownership").
 - Tags each event drawn by a themed artist with its ggplot2 **role** (`plot.title`, `axis.text.x.bottom`, `strip.text.x.top`, `legend.text`, …). The themed artists are the ones plotnine applies each theme element to: `theme.targets`, each guide's own theme, the axes' tick labels. These are plotnine 0.15 internals, pinned by `tests/test_roles.py`.
+- Calls the adapter's optional `observe_py.observe(fig, plot)` and merges what it returns.
 - Then draws once more with the package's top-level artists hidden and records `port_ink_px`: how many panel pixels the package's artists changed. This diagnostic pass never feeds the PNG or the observations.
 
 **R script**
 - Registers the same DejaVu TTFs (taken from the candidate interpreter's matplotlib).
 - Evaluates the R block and saves the PNG with ragg.
-- Calls the adapter's `observe.R`.
+- Calls the adapter's `observe.R`. Observations are saved with 4 decimals unless the adapter sets `adapter_json_digits`.
 
 | Outcome | Classification |
 | --- | --- |
@@ -179,6 +180,8 @@ def match(ref_components, cand_components) -> (pairs, missing, unexpected)   # a
     # not use the properties under test; must enforce a max cost (no forced matches)
 CHECKS = {name: fn}     # fn(ref, cand, P, add, expect); returns False when it doesn't apply to the pair
 def in_scope(comp, reference) -> bool          # optional: drop candidate components with no reference counterpart
+CASE_CHECKS = {name: fn}   # optional whole-plot checks: fn(ref_comps, cand_comps, pairs, P, add, expect)
+# optional observe_py.py: observe(fig, plot) -> dict, merged into the Python observations (runs in the package env)
 ```
 
 A component carries core keys where they apply (the core runs a check only if its key is present):
@@ -209,6 +212,8 @@ A component carries core keys where they apply (the core runs a check only if it
 - shape and placement: `fill_color`, `edge_color` (colour and opacity), `rotation`, `centroid`, `shape_size`
 
 **ggtext adapter checks:** `raw_markup_leak`, `sup_sub_offset`, `line_count`, `line_breaks` (advisory), `text_overflow`, `padding`, `rounded_corners`, `chrome_position`.
+
+**ggridges adapter checks:** `ridge_pieces`, `ridge_position` (baseline, height, x extent and top curve, in points), `density_curve`, `ridge_fill`, `ridge_outline`, and the whole-plot `paint_order`. Ridges pair by level; shapes on no level are reported as unexpected components.
 
 **Profile** (shipped by the adapter, overridden in parity.toml)
 
@@ -327,7 +332,6 @@ The harness hash covers:
 | Same-engine regression mode, other engines | The engine abstraction allows them; untested |
 | `datasets`, `data_file`, `levels` | No current case needs them |
 | Severity `info`, per-split exit status, progress score | Simpler status model |
-| `paint_order` check | Add with the ggridges adapter |
 | Git branch resolution | Ports are a shallow clone of an explicit commit or tag into `~/.cache/plotparity` |
 | Known-difference approval/expiry workflow | The file is human-owned and hashed |
 | Crash re-run | One process per run; `--isolate` gives one per case |

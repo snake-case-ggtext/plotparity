@@ -50,7 +50,31 @@ Findings carry `(new)` / `(persisting)` tags. "N fixed" counts only checks that 
 - **Edit only the package.**
   - Never edit plotparity, `parity.toml`, the cases (including `_references/`), `known_differences.toml`, or the installed plotnine/matplotlib.
   - A loop hashes all of these and fails any iteration after they change (`harness_changed`).
-- **If a finding looks wrong or like an acceptable R-vs-Python difference,** say so in your note or summary. A human decides whether it goes into `known_differences.toml`.
+- **If a finding looks wrong or like an acceptable R-vs-Python difference,** propose a change (below); don't make it. A human decides.
+- **These rules are enforced only under `plotparity loop`** (the harness hash). With plain `plotparity run` nothing stops an edit to `parity.toml`; follow them anyway.
+
+## Proposing a change to the bar
+
+When findings form a pattern that may not be the package's fault, add a **Proposals** section to your `loop finish --summary` (or your final message), one entry per proposal:
+
+- **What:** the check and the pattern, e.g. "`padding`: 16 findings in 9 cases, all top insets, +2.1 to +4.9pt".
+- **Why it may be acceptable**, or why it may be a real bug you couldn't fix.
+- **What it would hide:** the findings that would stop failing, including any outliers.
+- **The snippet**, ready to paste:
+
+```toml
+# parity.toml: change the bar for this project
+[profile.checks.padding]
+severity = "advisory"            # or tol = 3.0
+
+# known_differences.toml: accept one specific finding
+[[difference]]
+case = "textbox_native_no_wrap"
+check = "padding"
+reason = "…"
+```
+
+Prefer a narrow `known_differences` entry or `advisory` over raising a tolerance: a higher tolerance hides future bugs too.
 - **Don't special-case test inputs** (labels, coordinates, colours). Holdout cases exist to catch that.
 - **Don't read** holdout reports (`.plotparity/runs/loops/<loop>/holdout_*`), mutation patches, or other implementations of the same package.
 - **One coherent change per iteration,** with an honest note.
