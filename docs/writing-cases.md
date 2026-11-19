@@ -1,18 +1,32 @@
 # Writing cases
 
-A **case** is one plot, defined once, with an R version (the spec) and one Python version per port. Cases live in a **library**, e.g. [`cases/ggtext/`](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/) in plotparity-examples, and every project that evaluates a port of that extension shares them.
+A **case** is one plot, defined once, with an R version (the spec) and a Python version per package. Cases live in a **cases folder**: any folder with a `cases.toml` at its root (by default `./parity/` in your package's repo). Several packages can share one cases folder, like [`cases/ggtext/`](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/) in plotparity-examples.
+
+```toml
+# parity/cases.toml
+adapter = "ggtext"
+
+[reference]
+packages = ["ggplot2", "ggtext"]   # loaded before each case's R block
+
+[render]
+width_px = 640
+height_px = 480
+dpi = 72
+```
+
+`plotparity init` writes one for you.
 
 ## Quick start
 
 ```bash
-plotparity new-case cases/ggtext markup/my_case --package plotnine_ggtext   # 1. scaffold cases/ggtext/markup/my_case.md
-#                                                                      2. edit it (see below)
-plotparity references cases/ggtext --select my_case                         # 3. render the R reference (needs R)
-plotparity validate projects/ggtext                                         # 4. check the case is sound
-plotparity run projects/ggtext --select my_case                             # 5. see how the port does
+plotparity new-case parity/markup/my_case.md     # 1. create the file
+#                                                  2. edit it (see below)
+plotparity run parity/markup/my_case.md --open   # 3. renders the R reference if needed, then compares
+plotparity validate                              # 4. check the case is sound
 ```
 
-Run these from the root of the repo that holds your cases and projects (e.g. plotparity-examples), with `plotparity` installed (`uv tool install git+https://github.com/snake-case-ggtext/plotparity`). Rendering references needs R with ggplot2 and the extension installed; set `R_LIBS_USER` if they live in a separate library. Then add the case to one of the project's splits in `parity.toml`.
+Rendering R references needs R with ggplot2 and the extension installed; set `R_LIBS_USER` if they live in a separate library. If you use splits, add the case to one in `parity.toml`.
 
 ## The file
 
@@ -47,13 +61,13 @@ ggplot(df, aes("x", "y", label="label")) + geom_richtext()
 | `expect.measurable` | `false` for features the checker can't extract yet (e.g. theme elements). Such a case reports `unmeasured`, never a pass. |
 | `data` | The one shared data table. |
 | ```` ```r ```` | The spec. Its last expression must be the plot. |
-| ```` ```python <package> ```` | One block per port, tagged with the port's import name. An untagged ```` ```python ```` block is the fallback. |
+| ```` ```python ```` | The Python version. Tag it with an import name (```` ```python plotnine_ggtext ````) when several packages with different APIs share the cases; an untagged block is used by any package without its own. |
 
 **What's in scope in each language**
 
 - **R:** ggplot2, the extension, `grid::unit`, `PT_PER_MM`.
-- **Python:** all of `plotnine`, `margin`, `pd`, `np`, and every public name of the port.
-- **Both:** the string `{assets}` in data becomes the library's `_assets/` path. Every file in `_assets/` is part of the reference hash, so editing any asset makes all references stale: re-run `references`.
+- **Python:** all of `plotnine`, `margin`, `pd`, `np`, and every public name of the package.
+- **Both:** the string `{assets}` in data becomes the cases folder's `_assets/` path. Every file in `_assets/` is part of the reference hash, so editing any asset makes all references stale: re-run `references`.
 
 **Rules the loader enforces**
 
@@ -63,27 +77,27 @@ ggplot(df, aes("x", "y", label="label")) + geom_richtext()
 - **Column lengths** must divide evenly.
 - **No randomness:** both engines must plot identical data.
 - **Don't set fonts or themes.** The renderers pin DejaVu Sans on both sides, and R sorts strings in the C locale so factor order matches Python.
-- **No `split:` field.** Splits belong to each project's `parity.toml`.
+- **No `split:` field.** Splits belong in `parity.toml`.
 
 ## Checklist
 
 1. **One variant per label.** "px, cm, mm, red3" in one label fails as a blob. One label each makes the finding name the variant. Prefer several small cases over one big one.
 2. **All data in `data`.** Never build data differently in the two code blocks; that's how `lightblue1` vs `lightblue` once slipped into an upstream reference.
-3. **Translate the meaning, not the syntax.** Each port has its own API and conventions. The [second ggtext port](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/projects/ggtext-shanellis/parity.toml) uses points where R uses mm, treats `\n` as a line break unless you pass `newline="space"`, and measures box sizes *without* margins. Write each port's block so it asks that port for R's behaviour. [This case](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/geom_textbox/textbox_rotated_alignments.md) shows all three conventions.
-4. **Put the case in a split, per project:**
+3. **Translate the meaning, not the syntax.** Each package has its own API and conventions. The [second ggtext package](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/projects/ggtext-shanellis/parity.toml) uses points where R uses mm, treats `\n` as a line break unless you pass `newline="space"`, and measures box sizes *without* margins. Write each package's block so it asks that package for R's behaviour. [This case](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/geom_textbox/textbox_rotated_alignments.md) shows all three conventions.
+4. **If you use splits** (in `parity.toml`), put the case in one:
    - `dev`: the agent sees the findings.
    - `holdout`: the agent sees pass/fail counts only.
-   - `coverage`: R features this port doesn't have yet.
+   - `coverage`: R features the package doesn't have yet.
 
-   A dev or holdout case must pass on the project's `known_good` port, and `validate` enforces this. If the case fails there, the port really lacks the feature (move it to coverage), or the case has a bug.
+   With a `known_good` version set, a dev or holdout case must pass on it, and `validate` enforces this. If the case fails there, the package really lacks the feature (move it to coverage), or the case has a bug.
 5. **Validate after every change.** `validate` catches:
    - a component-count mismatch;
    - a stale R reference;
-   - a case that crashes for reasons that aren't the port's fault (`case_error`);
+   - a case that crashes for reasons that aren't the package's fault (`case_error`);
    - dev or holdout cases that don't pass on `known_good`.
 
-   It also lists cases with no block for the project's port.
-6. **Never loosen a tolerance to make a case pass.** If R and Python legitimately differ, for reasons outside the port, a human adds an entry to the project's `known_differences.toml` with the reason. Tolerances are calibrated on clean pairs only. After touching any check, run `plotparity selftest`.
+   It also lists cases with no Python block for the package.
+6. **Never loosen a tolerance to make a case pass.** If R and Python legitimately differ, for reasons outside the package, a human adds an entry to `known_differences.toml` (next to `parity.toml`) with the reason. Tolerances are calibrated on clean pairs only. After touching any check, run `plotparity selftest`.
 
 ## Generating a matched set
 

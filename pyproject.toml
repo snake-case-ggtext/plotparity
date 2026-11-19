@@ -3,7 +3,7 @@ name = "plotparity"
 version = "0.1.0"
 description = "Compare two engines' renderings of the same graphic (e.g. a ggplot2 extension vs its plotnine port) with structured, agent-actionable findings."
 authors = [
-    { name = "Jonathan Soma", email = "jonathan.soma@gmail.com" }
+    { name = "Jonathan Soma" }
 ]
 requires-python = ">=3.13"
 dependencies = [

@@ -15,9 +15,14 @@ from .engines.python import engine as py_engine
 TOOL_SRC = Path(__file__).resolve().parent
 
 
-def candidate_python(project) -> str:
+def candidate_python(project, port=None) -> str:
+    """Interpreter for the package under test: explicit `python`, or a cached uv env with the package installed
+    (so its own dependencies come along; its source stays first on PYTHONPATH) plus any extra `requirements`."""
     c = project.cfg["candidate"]
-    return py_engine.interpreter(c["python"], project.root, c["requirements"])
+    reqs = list(c["requirements"])
+    if c.get("install", True) and port is not None and any((port.root / f).exists() for f in ("pyproject.toml", "setup.py")):
+        reqs.append(str(port.root))
+    return py_engine.interpreter(c["python"], project.root, reqs)
 
 
 def harness_hash(project, env: dict | None = None) -> dict:
@@ -43,17 +48,17 @@ def harness_hash(project, env: dict | None = None) -> dict:
 
 
 def run(project, selector: str | None, out: Path, source: str | None = None, previous: Path | None = None,
-        isolate: bool = False, show_findings: bool = True) -> tuple[dict, str, int]:
+        isolate: bool = False, show_findings: bool = True, ids: list[str] | None = None) -> tuple[dict, str, int]:
     adapter = adapters.load(project.adapter_name)
     lib = project.library
     profile = load_profile(adapter, project.cfg["profile"].get("checks", {}))
     known = load_known(project.known_differences_path())
     all_cases = project.cases()
-    ids = project.select(selector)
+    ids = ids if ids is not None else project.select(selector)
     cases = [all_cases[i] for i in ids]
     cand_cfg = project.cfg["candidate"]
     port = ports.resolve(source or cand_cfg["source"], cand_cfg["package"], project.root)
-    python = candidate_python(project)
+    python = candidate_python(project, port)
     render_dir = out / "render"
     translated = [c for c in cases if c.python_for(project.package) is not None]
     info = py_engine.render(translated, port, cand_cfg["package"], cand_cfg["api"], project.render_cfg,
@@ -84,7 +89,9 @@ def run(project, selector: str | None, out: Path, source: str | None = None, pre
     report = {
         "status": {0: "pass", 1: "fail", 2: "unmeasured"}[code],
         "created": dt.datetime.now().isoformat(timespec="seconds"),
-        "project": str(project.root), "selection": selector or project.cfg["project"]["default_select"],
+        "project": str(project.root), "config": str(project.config_path) if project.config_path else None,
+        "package": project.package, "cases_root": str(project.library.root), "case_ids": ids,
+        "selection": selector or (project.cfg["project"]["default_select"] if ids is None else f"{len(ids)} cases"),
         "candidate": {"source": port.source, "root": str(port.root), "commit": port.commit, "dirty": port.dirty,
                       "python": python, "environment": env},
         "profile": profile, "harness": harness_hash(project, env),

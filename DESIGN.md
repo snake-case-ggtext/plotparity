@@ -2,9 +2,9 @@
 
 **What it does.** It renders the same plot two ways (a *reference* engine and a *candidate* engine) and records
 the draw calls on both sides. It turns them into comparable **components** and reports, per case, whether they
-agree. When they don't, it says what differs, where, and by how much. The audience is a coding agent iterating on a port, and the humans who maintain the benchmark.
+agree. When they don't, it says what differs, where, and by how much. The audience is a coding agent iterating on a package, and the humans who maintain the benchmark.
 
-- Main use: an R ggplot2 extension vs its Python/plotnine port.
+- Main use: an R ggplot2 extension vs its Python/plotnine package.
 - The engines are symmetric plug-ins, so other pairings are possible later. Only R→Python is supported and tested so far.
 - The research behind the design found that structured draw-call comparison works; pixel or VLM gating does not.
 
@@ -16,84 +16,83 @@ agree. When they don't, it says what differs, where, and by how much. The audien
 
 ## 1. Layout
 
-Two repos. The tool knows nothing about any particular extension's cases.
-
 ```
-plotparity/                        # the tool (this repo)
+plotparity/                        # the tool
   src/plotparity/
-    cli.py  project.py (Library, Project)  cases.py  ports.py  runner.py  compare.py  references.py
-    report.py  loop.py  selftest.py  validate.py  scaffold.py
-    engines/python/  worker.py (runs in the candidate interpreter), engine.py (incl. requirement envs), probe.py
+    cli.py  project.py (Library = a cases folder, Project = package + cases)  cases.py  ports.py  runner.py
+    compare.py  references.py  report.py  loop.py  selftest.py  validate.py  scaffold.py
+    engines/python/  worker.py (runs in the package's interpreter), engine.py (managed envs), probe.py
     engines/r/       render.R (fonts, PNG, adapter observe hooks)
-    adapters/ggtext/ adapter.py (segmentation, matching, ggtext checks), observe.R, profile.toml
-  tests/  (+ tests/fixtures: a 5-case slice of the ggtext library)   skills/plotparity/SKILL.md   docs/
+    adapters/ggtext/ adapter.py, observe.R, profile.toml
+    view/            build.py + template.html: the HTML report
+  tests/  skills/plotparity/SKILL.md  docs/
 
-plotparity-examples/               # cases + projects (any repo laid out like this works)
-  cases/<extension>/               # SHARED case library (the R side is the spec), e.g. cases/ggtext/
-    library.toml                   # adapter, R reference engine/packages, render size
-    <feature-folder>/<id>.md       # cases (geom_richtext/, geom_textbox/, markup/, elements/, …)
-    _references/<id>/              # stored R renders (depend only on the R side) + meta.json input hash
-    _assets/                       # files cases reference via {assets}
-  projects/<port>/                 # one port evaluated against a library
-    parity.toml                    # library, port package/source/known_good/requirements, [splits], profile overrides
-    known_differences.toml         # human-owned allowlist
-    mutations/                     # *.patch + suite.toml for selftest
-    runs/                          # outputs (gitignored)
+<cases folder>/                    # e.g. ./parity/ in a package repo, or plotparity-examples/cases/ggtext/
+  cases.toml                       # adapter, R packages, render size: everything references depend on
+  <folder>/<id>.md                 # case files
+  _references/<id>/                # stored R renders + meta.json input hash
+  _assets/                         # files cases reference via {assets}
+
+parity.toml (optional)             # saved defaults, in the directory you run from
+known_differences.toml, mutations/ # next to parity.toml
+.plotparity/runs/<timestamp>/      # run output (report.md / .json / .html, renders); `latest` points at the newest
 ```
 
-Caches live in `$PLOTPARITY_CACHE` (default `~/.cache/plotparity`): `ports/` holds shallow clones of git sources, and `envs/` holds uv-built candidate environments.
+Caches live in `$PLOTPARITY_CACHE` (default `~/.cache/plotparity`): `packages/` holds shallow clones of git sources, and `envs/` holds uv-built environments.
 
 ## 2. Configuration
 
-`cases/<ext>/library.toml` contains everything the stored references depend on:
+Nothing is required. `plotparity run [PATH…] [--from SOURCE]`:
+
+- **Cases.** Taken from PATHs (case folders or `.md` files inside one cases folder), else `cases` in parity.toml, else `./parity/` or `./cases/`.
+- **The package under test.** Comes from `--from` (a directory or `git+URL@rev`), else `from` in parity.toml, else the current directory. Its import name is inferred from `src/<pkg>/` or `<pkg>/`, or given with `--package`.
+- **Environment.**
+  - The package is tested in a cached uv environment where it is installed with its dependencies, with plotnine, matplotlib, pandas, pyyaml and numpy pinned to the tool's versions.
+  - The package's source stays first on `PYTHONPATH`, so the code under test is the checkout.
+  - The pins mean the package draws with the same matplotlib (and the same DejaVu TTFs) the references were checked against, and the font-hash check catches drift.
+
+`cases.toml`:
 
 ```toml
-[library]
 adapter = "ggtext"
-[reference]                 # engine "r"
-packages = ["ggplot2", "ggtext"]
-lib = ""                    # optional R library path; default = R's own (or R_LIBS_USER). Not part of the reference hash
+[reference]
+packages = ["ggplot2", "ggtext"]   # loaded before each case's R block
+lib = ""                           # optional R library path (else R's own / R_LIBS_USER); not part of the hash
 [render]
 width_px = 640
 height_px = 480
 dpi = 72
 ```
 
-`projects/<port>/parity.toml` covers one port:
+`parity.toml` (all optional):
 
 ```toml
-[project]
-default_select = "dev"
-[cases]
-library = "../../cases/ggtext"
-[splits]                    # globs over library-relative paths (folder/id) or ids; must not overlap
-dev = ["geom_richtext/*", "geom_textbox/textbox_rotated_alignments"]
-holdout = ["markup/richtext_feature_matrix_scripts"]
-coverage = ["elements/*"]
-[candidate]                 # engine "python"
-package = "plotnine_ggtext" # import name AND the tag of this port's ```python blocks
-source = "git+https://github.com/snake-case-ggtext/plotnine-ggtext@<commit>"   # or a local path
-known_good = "git+https://github.com/snake-case-ggtext/plotnine-ggtext@<commit>"  # optional: what dev/holdout must pass
-requirements = ["markdown>=3.5"]   # the port's dependencies → a cached uv env
-python = ""                 # alternative to requirements: an explicit interpreter path
-api = ["geom_richtext", "geom_textbox", "element_markdown", "element_textbox", "element_textbox_simple"]
-[render]
+cases = "../../cases/ggtext"
+from = "git+https://github.com/snake-case-ggtext/plotnine-ggtext@<commit>"   # or a path
+package = "plotnine_ggtext"      # if it can't be inferred
+known_good = "git+…@<commit>"    # a version known to match R: validate checks and selftest use it
+default_split = "dev"            # what a bare `plotparity run` selects (default: every case)
+requirements = []                # extra packages for the environment
+python = ""                      # an explicit interpreter instead of a managed env
+install = true                   # install the package itself into the env (brings its dependencies)
+api = ["geom_richtext", "element_markdown"]   # names R exports: a case using one the package lacks → missing_api
+out = ".plotparity/runs"
+html = true
 timeout_s = 60
-[profile.checks.centroid]   # overrides of the adapter's profile
+[splits]                         # globs over folder/id; must not overlap
+dev = ["geom_richtext/*"]
+holdout = ["markup/*"]
+[profile.checks.centroid]        # overrides of the adapter's profile
 tol = 0.04
 ```
 
-**`requirements` environments**
-- They are built with uv and cached by the hash of their requirements.
-- plotnine, matplotlib, pandas, pyyaml and numpy are always pinned to the versions plotparity runs with. The candidate therefore draws with the same matplotlib and the same DejaVu TTFs the references were checked against, and the font hash check catches any drift.
+Unknown keys are errors. CLI flags only change *what* runs (cases, package, output), never how it is judged.
 
-Unknown keys are errors. CLI flags may only change *what* runs (`--select`, `--source`, `--out`), never how it is judged.
-
-## 3. Case files (`cases/<ext>/<folder>/<id>.md`)
+## 3. Case files (`<cases folder>/<folder>/<id>.md`)
 
 ```markdown
 ---
-id: my_case               # = file stem, unique in the library
+id: my_case               # = file stem, unique in the cases folder
 expect: {components: 4, measurable: true, frame: true}   # frame etc. are adapter keys
 source: upstream test / docs example / gap list
 data: {x: 0.5, y: [0.2, 0.8], label: ["**a**", "b"]}    # → `df` in every engine
@@ -101,31 +100,31 @@ data: {x: 0.5, y: [0.2, 0.8], label: ["**a**", "b"]}    # → `df` in every engi
 # my_case
 One sentence: why this case exists.
 ```
-Then a ```` ```r ```` block (the spec), and zero or more ```` ```python <port-package> ```` blocks, e.g. ```` ```python plotnine_ggtext ````. An untagged ```` ```python ```` block is the default for ports that have no block of their own.
+Then a ```` ```r ```` block (the spec), and zero or more ```` ```python <package-package> ```` blocks, e.g. ```` ```python plotnine_ggtext ````. An untagged ```` ```python ```` block is the default for packages that have no block of their own.
 
-- If a case has **no block for the project's port and no default block**, the result is `unmeasured` (`needs_translation`). This fails closed, and the cases double as a translation to-do list.
+- If a case has **no block for the package and no default block**, the result is `unmeasured` (`needs_translation`). This fails closed, and the cases double as a translation to-do list.
 - **No `split` in case files.** Projects assign splits.
 - Booleans are only `true`/`false`; `y`, `n`, `yes`, `no`, `on`, `off` stay strings.
 - `null` becomes R `NA` and Python `None`.
 - Allowed types: str, int, float, bool and null.
 - Scalars recycle; lengths must divide.
-- `{assets}` expands to `<library>/_assets`.
+- `{assets}` expands to `<cases folder>/_assets`.
 - No randomness. Snippets don't set fonts or themes. R runs with `LC_COLLATE=C`.
-- **Splits are per project.**
+- **Splits live in parity.toml.**
   - dev: the agent sees findings.
   - holdout: counts only, trust-based.
-  - coverage: R features this port lacks, i.e. the backlog. A case in no split can still be selected by id or glob.
-- **Selection:** a comma-separated union of split names, `all`, and ids or globs over ids or library-relative paths (`geom_textbox/*`). A selector that matches nothing is an error.
+  - coverage: R features this package lacks, i.e. the backlog. A case in no split can still be selected by id or glob.
+- **Selection:** a comma-separated union of split names, `all`, and ids or globs over ids or folder-relative paths (`geom_textbox/*`). On the command line, PATHs, `-k` and `--split` do this. A selector that matches nothing is an error.
 
 ## 4. Engines and error attribution
 
 **Python worker**
-- Runs in the candidate interpreter with `PYTHONPATH = <port parent>:<plotparity/src>`.
+- Runs in the candidate interpreter with `PYTHONPATH = <package parent>:<plotparity/src>`.
 - Checks that `<package>.__file__` is under the resolved source. If not, the case is an `environment_error`.
 - Before each case: resets rcParams, pins fonts, and resets the plotnine theme.
-- Draws once to let plotnine finalize layout, then draws **once more through the recording proxy on the Agg renderer and saves `candidate.png` from that same buffer**, so the image and the observations come from one draw. (Accepted after checking that these PNGs are pixel-identical to the previous `savefig` PNGs for all 27 rendered cases of both example ports.)
+- Draws once to let plotnine finalize layout, then draws **once more through the recording proxy on the Agg renderer and saves `candidate.png` from that same buffer**, so the image and the observations come from one draw. (Accepted after checking that these PNGs are pixel-identical to the previous `savefig` PNGs for all 27 rendered cases of both example packages.)
 - Records every `draw_*` route (`draw_path`, `draw_text`, `draw_image` decoded; `draw_path_collection`, `draw_markers`, `draw_quad_mesh`, `draw_gouraud_triangles`, `draw_tex` recorded by name), with paint order, group stack, clip, panel bbox, effective alpha, and the **owner** of each event (§5, "Ownership").
-- Then draws once more with the port's top-level artists hidden and records `port_ink_px`: how many panel pixels the port's artists changed. This diagnostic pass never feeds the PNG or the observations.
+- Then draws once more with the package's top-level artists hidden and records `port_ink_px`: how many panel pixels the package's artists changed. This diagnostic pass never feeds the PNG or the observations.
 
 **R script**
 - Registers the same DejaVu TTFs (taken from the candidate interpreter's matplotlib).
@@ -134,12 +133,12 @@ Then a ```` ```r ```` block (the spec), and zero or more ```` ```python <port-pa
 
 | Outcome | Classification |
 | --- | --- |
-| Timeout | `render_timeout` (port fail) |
-| `ModuleNotFoundError` for a module other than the port, or the import check fails | `environment_error` |
-| `NameError` for a name listed in `candidate.api` | `missing_api` (port fail) |
-| Any exception while **drawing** (`fig` render), since drawing runs port code | `render_error` (port fail) |
-| Exception while **building** the plot, with a traceback frame in the port | `render_error` (port fail) |
-| Exception while **building** the plot, without a frame in the port | `case_error` (infrastructure) |
+| Timeout | `render_timeout` (package fail) |
+| `ModuleNotFoundError` for a module other than the package, or the import check fails | `environment_error` |
+| `NameError` for a name listed in `candidate.api` | `missing_api` (package fail) |
+| Any exception while **drawing** (`fig` render), since drawing runs package code | `render_error` (package fail) |
+| Exception while **building** the plot, with a traceback frame in the package | `render_error` (package fail) |
+| Exception while **building** the plot, without a frame in the package | `case_error` (infrastructure) |
 
 ## 5. Adapters and components
 
@@ -149,13 +148,13 @@ The adapter owns extraction, matching and its own checks.
 
 | Event drawn by | Rule |
 | --- | --- |
-| an artist whose class comes from the port package (`type(a).__module__` is the package or below it) | must be assigned to a component by the adapter; anything left over, including paths the segmentation rejects, is `unexpected_drawing` (gating fail) |
-| any other artist (plotnine/matplotlib: other layers such as `geom_point`, panel background, grid, axes, legends, titles) | permitted: not the port's responsibility. Counted in the report (`drawing.other_layer_events`) |
+| an artist whose class comes from the package (`type(a).__module__` is the package or below it) | must be assigned to a component by the adapter; anything left over, including paths the segmentation rejects, is `unexpected_drawing` (gating fail) |
+| any other artist (plotnine/matplotlib: other layers such as `geom_point`, panel background, grid, axes, legends, titles) | permitted: not the package's responsibility. Counted in the report (`drawing.other_layer_events`) |
 | no top-level artist | `unexpected_drawing` |
 
-Known limit: a port that adds plain matplotlib artists (e.g. `ax.text`) straight to the axes is treated as "other layers". Its drawing is still segmented into components and compared, but drawing outside components isn't flagged. Effects that bypass the renderer proxy (an `agg_filter`, writing to the canvas buffer) are invisible to the probe; the `ink_present` and empty-candidate rules below are the backstops.
+Known limit: a package that adds plain matplotlib artists (e.g. `ax.text`) straight to the axes is treated as "other layers". Its drawing is still segmented into components and compared, but drawing outside components isn't flagged. Effects that bypass the renderer proxy (an `agg_filter`, writing to the canvas buffer) are invisible to the probe; the `ink_present` and empty-candidate rules below are the backstops.
 
-**ggtext segmentation (Python side) works by geometry, not group names.** Group names are ambiguous: matplotlib's `Text` and `Patch` open `text` and `patch` groups, and ports differ (plotnine-ggtext wraps every box in a single `open_group("richtext")`; ggtext_ShanEllis wraps each label in `open_group("text")`). The steps:
+**ggtext segmentation (Python side) works by geometry, not group names.** Group names are ambiguous: matplotlib's `Text` and `Patch` open `text` and `patch` groups, and packages differ (plotnine-ggtext wraps every box in a single `open_group("richtext")`; ggtext_ShanEllis wraps each label in `open_group("text")`). The steps:
 1. Partition draw events by the group *instance* directly below `axes`. The probe records instance ids.
 2. A partition counts as rich text if it has text anchored inside the panel.
 3. Keep that partition's text and images, plus closed paths strictly inside the panel. This excludes the panel background.
@@ -191,8 +190,8 @@ A component carries core keys where they apply (the core runs a check only if it
   - `text_visible` fails a candidate run that lies mostly outside its clip rectangle (or the canvas) while the reference run is visible.
   - `ink_present` (pixel backstop) requires ink in `candidate.png` inside each visible run's rotated rectangle. It can be fooled by other ink under the text (e.g. a `geom_point` dot at the label's anchor); the structured checks above are primary.
 - **Empty candidate.** If the reference has components and the candidate has none:
-  - the port's artists changed no panel pixels (`port_ink_px == 0`): **fail** (`component_count`, `missing_component`);
-  - they did, or it couldn't be measured: `unmeasured` (`extractor_blind`). The adapter can't see how this port draws; extend it. Never a pass.
+  - the package's artists changed no panel pixels (`port_ink_px == 0`): **fail** (`component_count`, `missing_component`);
+  - they did, or it couldn't be measured: `unmeasured` (`extractor_blind`). The adapter can't see how this package draws; extend it. Never a pass.
 - **Non-finite numbers.** Profile numbers must be finite and >= 0 (else a configuration error, exit 3). Every number in both sides' components must be finite, and every computed difference is checked before it is compared with a tolerance (`d > nan` is false, which would silently pass). Either violation is an infrastructure error (`check_error`), as is a check that raises.
 
 **Core checks** (`compare.py`)
@@ -202,7 +201,7 @@ A component carries core keys where they apply (the core runs a check only if it
 
 **ggtext adapter checks:** `raw_markup_leak`, `sup_sub_offset`, `line_count`, `line_breaks` (advisory), `text_overflow`, `padding`, `rounded_corners`.
 
-**Profile** (shipped by the adapter, overridden by the project)
+**Profile** (shipped by the adapter, overridden in parity.toml)
 
 ```toml
 [checks.text_color]
@@ -226,7 +225,7 @@ An unknown check name or key is an error.
 
 **What a pass means:** the selected gating checks passed for the selected measurable cases. It says nothing about what the adapter doesn't extract (README, "What is (not yet) checked").
 
-**Per-check outcomes.** Each case result records, per component and per check, `pass`, `fail`, `unmeasured`, `known_difference`, `off` or `not_applicable` (plus a `case` entry for case-level checks), and a `drawing` summary (port events, how many are in components, other-layer events, events with no owner).
+**Per-check outcomes.** Each case result records, per component and per check, `pass`, `fail`, `unmeasured`, `known_difference`, `off` or `not_applicable` (plus a `case` entry for case-level checks), and a `drawing` summary (package events, how many are in components, other-layer events, events with no owner).
 
 **`known_differences.toml`** (human-owned)
 - Each entry has `case`, `check`, an optional `component` glob, and a `reason`.
@@ -236,12 +235,12 @@ An unknown check name or key is an error.
 
 ## 7. References
 
-`plotparity references <library|project>` stores, per case in `<library>/_references/<id>/`: `reference.png`, `observations.json` (raw R observations; components are computed at run time) and `meta.json`.
-References belong to the library because they depend only on the R side. Every port evaluated against the library shares them.
+`plotparity references [PATH…]` (and `run`, for missing or stale ones) stores, per case in `<cases folder>/_references/<id>/`: `reference.png`, `observations.json` (raw R observations; components are computed at run time) and `meta.json`.
+References belong to the cases folder because they depend only on the R side. Every package tested against the cases shares them.
 
 `meta.json` holds an **input hash** over:
 - the case front matter (minus `split`) and the R block
-- the contents of the library's whole `_assets/` folder (conservative: any asset edit makes every reference stale; dotfiles are ignored)
+- the contents of the cases folder's whole `_assets/` folder (conservative: any asset edit makes every reference stale; dotfiles are ignored)
 - the `[render]` and `[reference]` config
 - `render.R`, `observe.R` and the adapter version
 - R and package versions
@@ -290,7 +289,7 @@ If the harness hash differs from the previous report's, the report says so and n
 
 The harness hash covers:
 - tool source
-- project config
+- parity.toml
 - the merged profile
 - known differences
 - cases
@@ -308,7 +307,7 @@ The harness hash covers:
 - references are fresh
 - each reference's component count matches `expect`
 - known differences are unused or used
-- with `known_good`: dev and holdout pass, and coverage cases fail only with port findings
+- with `known_good`: dev and holdout pass, and coverage cases fail only with package findings
 
 ## 10. Not built yet (add when a real case needs it)
 
@@ -318,7 +317,7 @@ The harness hash covers:
 | `datasets`, `data_file`, `levels` | No current case needs them |
 | Severity `info`, per-split exit status, progress score | Simpler status model |
 | `paint_order` check | Add with the ggridges adapter |
-| `explore` command, `new-project` scaffold | |
+| A matrix/explore view beyond `plotparity view RUN RUN` | |
 | Git branch resolution | Ports are a shallow clone of an explicit commit or tag into `~/.cache/plotparity` |
 | Known-difference approval/expiry workflow | The file is human-owned and hashed |
 | Crash re-run | One process per run; `--isolate` gives one per case |
@@ -329,5 +328,5 @@ The harness hash covers:
 - **References store raw R observations, not components.** Components are computed at run time, so a Python-side adapter change doesn't force an R re-render. The `observe.R` hash and the adapter version are part of the input hash.
 - **R colours are resolved with R's `col2rgb`** in `observe.R`, as `#RRGGBB` or `#RRGGBBAA`. R-only names such as `red3` and `grey40` were previously unparseable on the Python side.
 - **The R observations keep jsonlite's default 4-decimal precision,** identical to the research references.
-- **`MAX_MATCH_COST` (2.5) is an adapter constant.** The canvas size in points comes from the library's `[render]` config and is passed to `components()`.
-- **Caches are published atomically.** A git port is fetched into a temp dir, checked for the package, marked complete inside `.git`, then renamed into place; an entry without the marker is rebuilt. A managed env is built under an exclusive lock and trusted only once `.complete` exists (written after the env imports plotnine/matplotlib). Envs aren't built elsewhere and renamed, because a venv embeds its own path.
+- **`MAX_MATCH_COST` (2.5) is an adapter constant.** The canvas size in points comes from cases.toml's `[render]` config and is passed to `components()`.
+- **Caches are published atomically.** A git package is fetched into a temp dir, checked for the package, marked complete inside `.git`, then renamed into place; an entry without the marker is rebuilt. A managed env is built under an exclusive lock and trusted only once `.complete` exists (written after the env imports plotnine/matplotlib). Envs aren't built elsewhere and renamed, because a venv embeds its own path.

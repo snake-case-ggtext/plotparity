@@ -1,34 +1,8 @@
 # plotparity
 
-**Does my Python port draw the same plot as the R original?**
+Test a [plotnine](https://plotnine.org) extension against the ggplot2 original.
 
-plotparity answers that for ggplot2 extensions ported to [plotnine](https://plotnine.org). It renders the same plot in R and in Python and records every text, shape and image each one draws. Then it compares those drawings piece by piece and tells you exactly what differs.
-
-For example, it caught a Python port of ggtext that didn't recognise R's colour name `red3`: the port drew the word in black and raised no error. Comparing screenshots wouldn't have caught it, because an R plot and a Python plot never match pixel for pixel anyway.
-
-It's built for **coding agents porting an extension**: fast feedback (a few seconds), and findings that say what to fix. It works just as well for a human. A pass has a precise meaning: **the selected gating checks passed for the selected measurable cases.** It isn't a claim that the two plots look identical; see [what is (not yet) checked](#what-is-not-yet-checked).
-
----
-
-## Try it in two minutes
-
-You need [uv](https://docs.astral.sh/uv/) and git. The worked examples live in their own repo, so clone that and run plotparity on it straight from GitHub:
-
-```bash
-git clone https://github.com/snake-case-ggtext/plotparity-examples
-cd plotparity-examples
-uvx --from git+https://github.com/snake-case-ggtext/plotparity plotparity run projects/ggtext
-```
-
-That compares the [plotnine-ggtext](https://github.com/snake-case-ggtext/plotnine-ggtext) port with R's ggtext on six cases, and should print `PARITY: PASS`. You don't need R: the R renders are stored in the examples repo. You don't need the port either: plotparity fetches it from GitHub at a pinned commit and builds its environment for you. The first run takes about 20 seconds while that happens, and later runs take a few.
-
-For the interesting run, point it at a second ggtext port that has real gaps:
-
-```bash
-uvx --from git+https://github.com/snake-case-ggtext/plotparity plotparity run projects/ggtext-shanellis --select all
-```
-
-Among its findings is that `red3` example:
+You write each test plot once, in R and in Python. plotparity renders both, records every text, shape and image each one draws, and compares them piece by piece:
 
 ```
 ## markup/r_colour_names: FAIL (2 findings)
@@ -36,129 +10,126 @@ Among its findings is that `red3` example:
        Span 'red3' rendered with color #000000 instead of #cd0000 (ΔE=42.17).
 ```
 
-Each finding names the component (the first box, the word `red3`), the check that failed (`text_color`), and R's value vs. the port's.
+That's a real finding: a Python port of ggtext didn't know R's colour name `red3`, drew the word in black, and raised no error. A screenshot comparison can't catch this, because R and Python plots never match pixel for pixel.
 
-**Output**
-
-Each run writes `report.md` (the readable one shown above, with links to the R and Python PNGs) and `report.json` (everything) to `projects/<name>/runs/`.
-
-**Exit codes**
-
-| Code | Meaning |
-| --- | --- |
-| `0` | everything passes |
-| `1` | any failure |
-| `2` | something couldn't be measured |
-
-Use the exit code to gate CI or an agent loop.
-
-**To use plotparity regularly,** install it once as a tool, and then it's just `plotparity`:
+## Install
 
 ```bash
 uv tool install git+https://github.com/snake-case-ggtext/plotparity
-plotparity run projects/ggtext
 ```
 
-## How it fits together
+You need [uv](https://docs.astral.sh/uv/). R (with ggplot2 and the extension) is only needed to render the R side of new or changed test plots; those renders are stored next to the cases.
 
-```
-plotparity-examples/
-  cases/ggtext/              the CASES: plots defined once, R + Python side by side
-    geom_richtext/  geom_textbox/  markup/  elements/
-    _references/             stored R renders: the "expected" answers
-  projects/ggtext/           a PROJECT: one port, compared against those cases
-    parity.toml              which port (git URL + commit), its dependencies, which cases are dev/holdout
-    known_differences.toml   differences a human has accepted as "not a bug"
+## Use it
+
+From your package's repo, with test plots in `./parity/`:
+
+```bash
+plotparity run --open
 ```
 
-- **One set of cases serves every port.** [plotnine-ggtext](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/projects/ggtext/parity.toml) and [Shannon Ellis's ggtext](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/projects/ggtext-shanellis/parity.toml) share the same cases and the same R renders.
-- **Each project picks its own splits.** `dev` cases give the agent full feedback. `holdout` cases show pass/fail counts only. `coverage` cases are R features the port doesn't have yet, which makes them the to-do list.
+Or point it at cases and a package anywhere:
 
-## What a case looks like
+```bash
+plotparity run path/to/cases --from ~/code/plotnine-foo
+plotparity run path/to/cases --from git+https://github.com/someone/plotnine-foo@v0.3
+```
 
-A case is one Markdown file. Here's [a real one](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/markup/r_colour_names.md), trimmed:
+`run` finds the package, installs it with its dependencies into a cached environment, renders any missing R references, compares, and writes a report to `.plotparity/runs/` (`report.md`, `report.json`, `report.html`). `--open` opens the HTML report, which shows R and Python side by side (also blink, swipe and difference) with each finding outlined on both images.
+
+| Option | |
+| --- | --- |
+| `PATH …` | case folders or `.md` files (default: `./parity/`) |
+| `--from SOURCE` | the package under test: a directory or `git+URL@rev` (default: `.`) |
+| `-k EXPR` | only cases whose name matches, e.g. `-k "textbox and not rotated"` |
+| `--split NAME` | only a named group of cases, from `parity.toml` |
+| `--open` / `--no-html` | open the HTML report / don't build it |
+| `-q` | print only the status line |
+| `--compare RUN` / `--no-compare` | mark findings new/fixed against a run (default: the last run of the same package and cases) |
+| `--no-render-r` | fail instead of rendering missing R references (for CI without R) |
+
+`plotparity view` reopens the latest report; `plotparity view RUN RUN` shows several runs side by side. `plotparity init` saves your defaults to a `parity.toml`.
+
+## Reading the results
+
+| Status | Meaning | What to do |
+| --- | --- | --- |
+| matches | every check agrees with R | nothing |
+| differs | at least one check disagrees | fix the first findings first: content, then layout, then style |
+| not measured | the case can't be compared yet (e.g. theme elements) | look at the images; it is not a pass |
+| needs translation | the case has no Python block for your package | add one to the case file |
+| error | the case, reference or environment is broken, not your package | fix the case or the setup |
+
+Exit codes: `0` all match, `1` something differs, `2` something wasn't measured or errored, `3` usage error.
+
+If a difference is real but not your package's fault (for example, ggplot2 and plotnine lay out panels slightly differently), add it to `known_differences.toml` with the reason. It's then reported but no longer fails the run.
+
+## Writing test plots
+
+A case is one Markdown file: a shared data table, the R code, and the Python code.
 
 ````markdown
 ---
 id: r_colour_names
-expect: {components: 1, frame: true, measurable: true}
+expect: {components: 1, frame: true}
 data:
   label: R colours <span style='color:red3'>red3</span> <span style='color:grey40'>grey40</span>
   x: 0.05
   y: 0.5
 ---
 
-# r_colour_names
-
-R colour names (`red3`, `grey40`) in span CSS.
+R colour names in span CSS.
 
 ```r
 ggplot(df, aes(x, y, label = label)) + geom_richtext(hjust = 0) + xlim(0, 1) + ylim(0, 1)
 ```
 
-```python plotnine_ggtext
-ggplot(df, aes("x", "y", label="label")) + geom_richtext(hjust=0) + xlim(0, 1) + ylim(0, 1)
-```
-
-```python ggtext
+```python
 ggplot(df, aes("x", "y", label="label")) + geom_richtext(hjust=0) + xlim(0, 1) + ylim(0, 1)
 ```
 ````
 
-Reading it top to bottom:
+`plotparity new-case parity/markup/my_case.md` creates one. See [docs/writing-cases.md](docs/writing-cases.md).
 
-- **`data`** is a single table that becomes `df` in both languages. Data lives here, never inside the code blocks, so R and Python can't accidentally plot different things.
-- **`expect`** tells the checker what to look for. Here that's one labelled box, drawn with a frame.
-- **One sentence** says why the case exists.
-- **The `r` block is the spec.** Its render is the expected answer.
-- **Each `python` block is tagged with the port it's written for.** Ports have different APIs, so each one gets its own translation of the same plot. A port with no block for a case reports `needs_translation`, rather than silently skipping it.
+## Using it with a coding agent
 
-For richer examples, see [a rotated-box case](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/geom_textbox/textbox_rotated_alignments.md), whose second port uses different units and margin conventions, and [a theme-element case](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/cases/ggtext/elements/element_markdown_title.md).
+Point the agent at [skills/plotparity/SKILL.md](skills/plotparity/SKILL.md). It covers the run–fix loop, how to read findings, and the rules (edit only the package; never the cases, references or `known_differences.toml`). Agents usually want `--no-html`.
 
-To add your own, follow **[Writing cases](docs/writing-cases.md)**. It covers how to scaffold a case, render its R reference, validate it, and generate a matched set of variants.
+## What a pass means
 
-## What is (not yet) checked
+A pass means the checks passed for the cases that could be measured. For each thing R draws (for ggtext: each rich-text box), plotparity checks:
 
-For each component R draws (for ggtext: each rich-text box), plotparity checks the port's matching component:
-
-- **what is drawn:** the words and their order, no leaked markup (`**`, `<span>`, `~sub~`), the number of boxes;
-- **how text looks:** colour, opacity, weight, style, size, superscript/subscript offsets;
-- **that text is visible:** not clipped away, and actually showing ink in your PNG;
-- **layout:** rotation, placement, box size, padding, line count (where lines wrap is advisory), overflow;
-- **frames:** fill and outline colour and opacity, rounded corners;
-- **nothing extra:** every draw call your port's own artists make must belong to a component. Other layers (plotnine's `geom_point`, axes, grid) are allowed and counted.
+- **what is drawn:** the words and their order, no leaked markup (`**`, `<span>`, `~sub~`), the number of boxes, and nothing extra drawn by your package;
+- **how text looks:** colour, opacity, weight, style, size, superscript/subscript offsets, and that it's visible (not clipped, actually inked);
+- **layout:** rotation, placement, box size, padding, line count, overflow;
+- **frames:** fill and outline colour and opacity, rounded corners.
 
 Not checked yet:
 
-- theme elements: titles, axis labels, strips and legend text (`element_markdown`, `element_textbox`). These cases report `unmeasured`;
+- theme elements: titles, axis labels, strips and legend text (`element_markdown`, `element_textbox`), which report `not measured`;
 - the content of `<img>` images;
-- facets and multiple panels (only the first panel is read);
-- legends and legend keys a port draws (they belong to plotnine's legend);
-- plain matplotlib artists a port adds straight to the axes (e.g. `ax.text`): they're compared if they form components, but extra drawing by them isn't flagged;
-- drawing that bypasses matplotlib's renderer (agg filters, writing to the canvas buffer);
+- facets (only the first panel is read) and legends;
+- plain matplotlib artists a package adds straight to the axes, and drawing that bypasses matplotlib's renderer;
 - glyph shapes and kerning, outline width and dashes, stacking order against other layers.
 
-## Common tasks
+## Other extensions
 
-Run these from a directory with cases and projects, such as `plotparity-examples`.
+Only ggtext is supported today. Supporting another extension means writing an adapter (what counts as a component, how to match them, which checks apply): see [docs/writing-adapters.md](docs/writing-adapters.md).
 
-| I want to… | Run |
-| --- | --- |
-| check a port | `plotparity run projects/ggtext` |
-| check my local checkout of the port | `… run projects/ggtext --source ~/code/plotnine-ggtext` |
-| check a pinned commit | `… --source git+https://github.com/org/repo@<commit-or-tag>` |
-| run particular cases | `… --select holdout`, `--select 'markup/*'`, `--select richtext_example_markup` |
-| see what a port is missing | `… run projects/ggtext --select coverage` |
-| add a case | [Writing cases](docs/writing-cases.md) |
-| evaluate a new port of ggtext | copy `projects/ggtext/`, edit `parity.toml` ([example](https://github.com/snake-case-ggtext/plotparity-examples/blob/main/projects/ggtext-shanellis/parity.toml)), add `python <package>` blocks |
-| let an agent port a feature | [the agent skill](skills/plotparity/SKILL.md) (`plotparity loop …`) |
-| check the checker still catches bugs | `plotparity selftest projects/ggtext` (re-runs known-bad mutations) |
+## Example
 
-## Learn more
+[plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) has 16 ggtext cases and two ggtext packages tested against them, one that matches and one with real gaps:
 
-- [Writing cases](docs/writing-cases.md): the case format, rules, and authoring checklist
-- [DESIGN.md](DESIGN.md): how it works, and the rules that stop it passing broken ports
-- [AGENTS.md](AGENTS.md): current status, open issues and working notes
-- [plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples): the ggtext case library and projects
+```bash
+git clone https://github.com/snake-case-ggtext/plotparity-examples
+cd plotparity-examples/projects/ggtext-shanellis && plotparity run --open
+```
 
-**Working on plotparity itself:** `uv sync && uv run pytest -q`. The tests use a small built-in fixture. Set `PLOTPARITY_TEST_PORT=~/code/plotnine-ggtext` to test against a local checkout instead of the pinned GitHub commit.
+## More
+
+- [docs/writing-cases.md](docs/writing-cases.md): case format and checklist
+- [docs/writing-adapters.md](docs/writing-adapters.md): supporting another extension
+- [DESIGN.md](DESIGN.md): how it works
+- [AGENTS.md](AGENTS.md): working on plotparity itself
+
+Developing plotparity: `uv sync && uv run pytest -q`.

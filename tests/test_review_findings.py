@@ -417,8 +417,8 @@ def test_line_breaks_compares_per_line_words():
 def test_usage_errors_exit_3(tmp_path):
     from plotparity.cli import main
     proj = _project_copy(tmp_path)
-    assert main(["new-case", str(proj.library.root), "not a path"]) == 3
-    assert main(["loop", "iterate", str(proj.root), "--name", "nope", "--note", "x"]) == 3
+    assert main(["new-case", str(tmp_path / "no_cases_here" / "x.md")]) == 3          # not inside a cases folder
+    assert main(["loop", "iterate", "--config", str(proj.config_path), "--name", "nope", "--note", "x"]) == 3
 
 
 def test_non_finite_delta_is_never_a_silent_pass():

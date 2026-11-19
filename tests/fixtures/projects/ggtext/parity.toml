@@ -1,19 +1,12 @@
-# Test fixture: a 5-case slice of plotparity-examples' ggtext library, evaluated against plotnine-ggtext.
-# The port comes from PLOTPARITY_TEST_PORT (see tests/conftest.py); `source` below is a placeholder.
-[project]
-default_select = "dev"
-
-[cases]
-library = "../../cases/ggtext"
+# Test fixture: a 5-case slice of the ggtext cases, tested against plotnine-ggtext.
+# `from` is replaced by PLOTPARITY_TEST_PORT in the tests.
+cases = "../../cases/ggtext"
+from = "PLOTPARITY_TEST_PORT"
+package = "plotnine_ggtext"
+known_good = "PLOTPARITY_TEST_PORT"
+default_split = "dev"
+api = ["geom_richtext", "geom_textbox", "element_markdown", "element_textbox", "element_textbox_simple"]
 
 [splits]
 dev = ["geom_richtext/*", "markup/richtext_feature_matrix_css"]
 holdout = ["geom_textbox/*", "markup/richtext_feature_matrix_scripts"]
-
-[candidate]
-engine = "python"
-package = "plotnine_ggtext"
-source = "PLOTPARITY_TEST_PORT"
-known_good = "PLOTPARITY_TEST_PORT"
-requirements = ["markdown>=3.5"]
-api = ["geom_richtext", "geom_textbox", "element_markdown", "element_textbox", "element_textbox_simple"]

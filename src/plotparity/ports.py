@@ -37,7 +37,7 @@ def _package_parent(root: Path, package: str) -> Path | None:
     return next((p for p in candidates if (p / package / "__init__.py").exists()), None)
 
 
-def _clone(url: str, rev: str, package: str, dest: Path) -> None:
+def _clone(url: str, rev: str, package: str | None, dest: Path) -> None:
     """Fetch `rev` into a fresh temp dir, check the package is there, then publish it at `dest` by rename.
     A failed or interrupted fetch never leaves anything at `dest` that a later run would trust."""
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +51,7 @@ def _clone(url: str, rev: str, package: str, dest: Path) -> None:
             _git(["checkout", "-q", "FETCH_HEAD"], tmp)
         except subprocess.CalledProcessError as exc:
             raise PortError(f"could not fetch {url}@{rev}: {(exc.stderr or '').strip()[-400:]}") from None
-        if _package_parent(tmp, package) is None:
+        if package is not None and _package_parent(tmp, package) is None:
             raise PortError(f"package {package!r} not found in {url}@{rev} (looked in src/{package}, {package}/)")
         (tmp / ".git" / COMPLETE).write_text(_git(["rev-parse", "HEAD"], tmp) + "\n")
         if dest.exists() and not (dest / ".git" / COMPLETE).exists():
@@ -63,6 +63,20 @@ def _clone(url: str, rev: str, package: str, dest: Path) -> None:
                 raise
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def resolve_root(source: str, base: Path | None = None) -> Path:
+    """Source root of a path or git source (git sources are cloned into the cache), without a package check."""
+    if source.startswith("git+"):
+        url, sep, rev = source[4:].rpartition("@")
+        if not sep or not url or not rev:
+            raise PortError(f"git source must be git+URL@<commit-or-tag>, got {source!r}")
+        dest = CACHE / hashlib.sha256(url.encode()).hexdigest()[:16] / rev
+        if not (dest / ".git" / COMPLETE).exists():
+            _clone(url, rev, None, dest)
+        return dest
+    p = Path(source).expanduser()
+    return (p if p.is_absolute() else (base or Path.cwd()) / p).resolve()
 
 
 def resolve(source: str, package: str, base: Path) -> Port:

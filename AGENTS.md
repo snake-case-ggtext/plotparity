@@ -1,106 +1,70 @@
-# AGENTS.md: plotparity working notes
+# AGENTS.md
 
-Read this first if you're an agent or a human picking up work here. **Keep it current:** update Status, Open issues and the Log whenever you change behaviour, add cases or projects, or run a loop.
+Notes for anyone (agent or human) changing plotparity itself. To *use* plotparity on a package, see `README.md`; agents doing that should follow `skills/plotparity/SKILL.md`.
 
-- Design: `DESIGN.md`.
-- Usage: `README.md`.
-- Writing cases: `docs/writing-cases.md`.
-- Agent loop: `skills/plotparity/SKILL.md`.
-
-**Related**
-
-| Repo | Contents |
+| Doc | Covers |
 | --- | --- |
-| [plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) | the ggtext case library, plus projects for two ports |
-| `plotparity-research/` (local folder in the maintainers' workspace, not published) | frozen research record: REPORT.md, the explorer, the ggridges pilot, the theme-element spike |
+| `README.md` | install, run, reading results |
+| `DESIGN.md` | how it works: layout, configuration, engines, ownership and visibility rules, statuses, references, reports |
+| `docs/writing-cases.md` | case format and authoring checklist |
+| `docs/writing-adapters.md` | supporting another extension |
+| `skills/plotparity/SKILL.md` | instructions for an agent working on a package |
 
-## Status (2026-11-19)
+Worked example and the ggtext benchmark: [plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples).
 
-| Piece | State |
-| --- | --- |
-| `run` / `references` / `validate` / `selftest` / `loop` / `new-case` | working |
-| Distribution | `uvx --from git+https://github.com/snake-case-ggtext/plotparity plotparity …`. Ports can be git URLs pinned to a commit; port dependencies come from `[candidate] requirements` (a cached uv env) |
-| Tests (`uv run pytest -q`) | 16 passed. Uses `tests/fixtures/` (5 ggtext cases + R refs) and the port from `PLOTPARITY_TEST_PORT` (default: pinned plotnine-ggtext commit) |
-| examples: `projects/ggtext` (plotnine-ggtext) | dev 6 / holdout 4 all pass; coverage 6 = backlog; `validate` and `selftest` pass (9/9 mutations caught, negative control passes, batch == `--isolate`) |
-| examples: `projects/ggtext-shanellis` (Shannon Ellis's `ggtext`) | 2/16 pass, 10 fail, 4 unmeasured. Real gaps: sup/sub scale 0.7× vs R 0.8×; top padding +2.4–3.6 pt; outline colour follows `text_color` not `color`; R colour names (`red3`, `grey40`) silently black; `~sub~`/`^sup^` unsupported |
-| Migration from the research prototype | done: golden test 158/160 identical, 2 explained (the old allowlist was over-broad), 0 unexplained |
+## State
 
-## Commands
+- **Commands:** `run`, `view`, `init`, `new-case`, `references`, `validate`, `selftest` and `loop` all work. A bare `plotparity run` inside a package repo with `./parity/` needs no config.
+- **One adapter: ggtext** (`geom_richtext`, `geom_textbox`).
+- **Tests:** `uv run pytest -q`, about 60 tests in roughly 30 s. They use `tests/fixtures/`, which is 5 ggtext cases with their R references, copied from plotparity-examples. The package under test comes from `PLOTPARITY_TEST_PORT` (default: plotnine-ggtext at a pinned commit; set it to a local checkout to run offline).
+- **plotparity-examples, `projects/ggtext`** (plotnine-ggtext):
+  - dev and holdout all match R;
+  - the coverage split is the backlog (theme elements, `<img>`, R colour names, `~sub~`/`^sup^`);
+  - `validate` passes;
+  - `selftest`: all 16 mutations are caught, each with a visible pixel change; the negative control passes; batch and `--isolate` agree.
+- **plotparity-examples, `projects/ggtext-shanellis`** (a second ggtext package): 2 of 16 match, 10 differ, 4 are unmeasured.
 
-```bash
-# from plotparity-examples (or any repo with cases/ + projects/):
-PP="uvx --from git+https://github.com/snake-case-ggtext/plotparity plotparity"   # local checkout: --from ../plotparity
-$PP run projects/ggtext [--select dev|holdout|coverage|all|<id>|<glob>] [--source <path|git+URL@rev>]
-$PP references cases/ggtext [--select …] [--force]     # needs R (+ ggplot2, ggtext); set R_LIBS_USER if needed
-$PP validate projects/ggtext
-$PP selftest projects/ggtext
-$PP loop init|iterate|holdout|finish projects/ggtext --name N …
-$PP new-case cases/ggtext <folder>/<id> [--package plotnine_ggtext]
-# in this repo:
-uv run pytest -q
-```
+## Rules for changing plotparity
 
-## Rules
-
-- **Fail closed.** Unmeasurable is never a pass. These are all fail or unmeasured, never skipped:
-  - unassigned candidate drawing
-  - an empty candidate
-  - a property the reference has but the candidate lacks
-  - unalignable text runs
-  - a missing translation
-- **After changing a check, the profile or an adapter:** run pytest here, and `selftest` on every example project that has a `known_good`. Calibrate tolerances on clean pairs only, and record the calibration in `profile.toml`.
-- **After adding or editing cases:** run `references`, then `validate`. Dev and holdout cases must pass on the project's `known_good` port.
+- **Fail closed.** Anything that can't be measured is `unmeasured` or an error, never a pass. Every candidate draw event is either inside a component, or drawn by a plotnine/matplotlib artist (another layer), or `unexpected_drawing`.
+- **After changing a check, the profile, an adapter or the probe:**
+  - run pytest;
+  - run `plotparity selftest` in `plotparity-examples/projects/ggtext`;
+  - keep dev and holdout on that project all-matching.
+- **Tolerances:**
+  - calibrate on clean pairs only, and write the calibration into `profile.toml`;
+  - never loosen a tolerance to make a case pass.
+- **If you change `observe.R` or the reference inputs:**
+  - re-render the references in plotparity-examples (`plotparity references cases/ggtext --force`, with R and `R_LIBS_USER`);
+  - then refresh the five copies in `tests/fixtures/cases/ggtext/_references/`;
+  - PNGs should stay byte-identical unless rendering really changed.
+- **The adapter's `VERSION` is part of every reference hash.** Bump it only when stored references must be re-rendered.
 - **`known_differences.toml` is human-owned.** Agents propose entries; a human adds or approves them.
-- **Local `uvx --from <path>` users get fresh builds.** `pyproject.toml` sets `[tool.uv] cache-keys` to watch `src/**`; uv's default watches only `pyproject.toml`.
+- **Running from a local checkout:** `uvx --from ./plotparity` picks up source edits because `pyproject.toml` sets `[tool.uv] cache-keys` to cover `src/**`.
 
-## Adding an adapter (new extension)
+## Adapter contract (summary; details in docs/writing-adapters.md)
 
-Create `src/plotparity/adapters/<name>/` with:
-
-- `adapter.py`:
-  - `NAME`, `VERSION`, `OBSERVE_R`, `PROFILE`, `EXPECT_KEYS`
-  - `components(engine, observations, expect)`, which returns `(components, unassigned)`
-  - `component_id`
-  - `match`, which must enforce a max cost
-  - `CHECKS`
-- `observe.R`:
-  - `adapter_setup(family)`
-  - `adapter_observe(p, w_in, h_in, dpi)`, which returns a named list of streams
-- `profile.toml`, which configures every core and adapter check
-
-Components reuse the core keys (`text_runs`, `rect`, `angle_deg`, `centroid_norm_tl`, `words`, `full_text`) wherever they apply.
-
-The template for a geometry-and-stat adapter is the ggridges pilot (research record: `experiment/ggridges_pilot/README.md`). It needs:
-
-- a `build` observation stream: a worker hook that captures plotnine's built layer data;
-- comparison in data coordinates;
-- a case-level `paint_order` check.
+- **`components(engine, observations, expect, canvas_pt)`** returns `(components, assigned)`, where `assigned` is the set of Python paint indices put into components.
+- **`describe_component(comp)`** is what the core prints for a missing or unexpected component.
+- **Checks** return `False` when they don't apply to a pair.
+- **Core keys:** `text_runs`, `rect`, `angle_deg`, `centroid_norm_tl`, `bbox_norm_tl`. The core runs a check only when its keys are present.
 
 ## Open issues
 
-- **Theme elements (titles, axes, strips, legends) aren't extracted yet.** Those cases are `measurable: false`. A spike (research record: `spikes/chrome_extraction/`) showed it's feasible on both engines and has a concrete design:
-  - **Roles, R side:** come from the forced gtable names.
-  - **Roles, Python side:** tag events by wrapping the artists plotnine applies each themeable to (`theme.targets`, guides), with a `gid="ggrole:<role>"` hook for ports.
-  - **Position:** compare relative to the panel edge, not on the canvas.
-  - **New checks:** `chrome_position`, `chrome_padding` and `chrome_line_count`.
-
-  Its tolerances come from 23 pairs on one port; recalibrate them before freezing.
-- **`observe.R` reports sizes in grid `"pt"` (1/72.27 in), but matplotlib uses 1/72 in.** R widths, heights and insets are 0.375% too large (found by the spike). It's harmless at current tolerances. Fix it by converting with `"bigpts"`, then re-render the references.
-- **`<img>` isn't checked.** Python records `draw_image`; the R probe doesn't yet extract raster grobs.
-- **`CANVAS_PT` (640×480) is hard-coded in the ggtext adapter** (padding insets, word-split positions). A per-case canvas override would distort them. Fix by passing the canvas into `components()`.
-- **Facets and multiple panels aren't supported:** segmentation uses the first panel.
-
-## Log
-
-- **2026-11-19:** Built per DESIGN.md and migrated from the research prototype (golden test 158/160 identical).
-  - The case library is shared across ports.
-  - Python blocks are tagged by port package.
-  - Splits live in projects.
-  - Segmentation is geometry-first.
-- **2026-11-19:** Stress test with a second ggtext port. The harness fix it forced: multi-word `draw_text` runs are now split into words, because gridtext draws per word while other ports draw per styled run.
-- **2026-11-19:** Split into two repos, plotparity (tool) and plotparity-examples. The research record became a local, unpublished folder.
-  - Added `[candidate] requirements` (a uv-built, cached env with plotnine and matplotlib pinned to the tool's versions).
-  - `known_good` now resolves like `source`, so git URLs work.
-  - `PLOTPARITY_CACHE` controls both caches.
-  - The tests got their own fixture.
-  - The `[ggtext]` extra was removed: ports declare their own dependencies.
+- **Theme elements (titles, axis labels, strips, legends) aren't extracted yet.** Those cases report `unmeasured`.
+  - A spike showed it's feasible on both engines, with this design:
+    - **R side:** roles come from the forced gtable names.
+    - **Python side:** events are tagged by wrapping the artists plotnine applies each themeable to (`theme.targets`, guides), with a `gid="ggrole:<role>"` hook for packages.
+    - **Positions:** compared relative to the panel edge, not the canvas.
+    - **New checks:** `chrome_position`, `chrome_padding`, `chrome_line_count`.
+  - Its tolerances come from 23 pairs on one package; recalibrate them before freezing.
+  - The spike's code is in the maintainers' research folder (not published).
+- **`<img>` content isn't compared.** Python records `draw_image`, but the R probe doesn't extract raster grobs.
+- **Facets and multiple panels:** segmentation reads the first panel only.
+- **Ownership limits:**
+  - Plain matplotlib artists a package adds straight to the axes count as "other layers": their drawing is compared if it forms components, but extra drawing by them isn't flagged.
+  - Drawing that bypasses the renderer (agg filters, writing to the canvas buffer) isn't recorded.
+- **`ink_present` can be fooled by other ink under a run.** In `richtext_example_markup`, a `geom_point` dot sits under the word "text". `text_alpha` and `text_visible` are the primary visibility checks.
+- **`_cluster_lines` in the ggtext adapter still has a 640×480 fallback.** It's unused today, because both engines always provide local coordinates.
+- **Managed environments are keyed by their requirement list,** which includes the package path. Editing a local package's *dependencies* needs a fresh environment: delete `~/.cache/plotparity/envs/<key>`. Code changes are picked up anyway, because the source comes first on `PYTHONPATH`.
+- **A ggridges adapter** (polygons, KDE statistics, paint order) has a working pilot in the research folder, and `docs/writing-adapters.md` lists what it needs.

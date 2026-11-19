@@ -1,10 +1,17 @@
-"""plotparity CLI. Exit codes: 0 pass, 1 fail, 2 unmeasured/infrastructure, 3 usage/config error."""
+"""plotparity: test a plotnine extension against the R original.
+
+Exit codes: 0 every case matches R · 1 a case differs · 2 something couldn't be measured or run · 3 usage/config error.
+"""
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
+import os
+import shutil
 import sys
+import webbrowser
 from pathlib import Path
 
 from .cases import CaseError
@@ -13,98 +20,290 @@ from .ports import PortError
 from .project import ConfigError, Project, UsageError
 
 
-def _out(project: Project, given: str | None, kind: str) -> Path:
-    if given:
-        return Path(given).resolve()
-    return project.runs_dir / f"{kind}_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+# ───────────────────────── project resolution (shared by all commands) ─────────────────────────
 
+def _config_path(a) -> Path | None:
+    if getattr(a, "config", None):
+        p = Path(a.config).resolve()
+        p = p / "parity.toml" if p.is_dir() else p
+        if not p.exists():
+            raise ConfigError(f"{p} not found")
+        return p
+    p = Path.cwd() / "parity.toml"
+    return p if p.exists() else None
+
+
+def _project(a) -> Project:
+    return Project.build(config_path=_config_path(a), paths=getattr(a, "paths", None) or None,
+                         from_=getattr(a, "from_", None), package=getattr(a, "package", None))
+
+
+def _latest(runs_dir: Path) -> Path | None:
+    runs = sorted((p for p in runs_dir.glob("*") if (p / "report.json").exists()), key=lambda p: p.name)
+    return runs[-1] if runs else None
+
+
+def _comparable(runs_dir: Path, report: dict) -> Path | None:
+    """Latest earlier run of the same package (name + source) on the same cases."""
+    for d in sorted(runs_dir.glob("*"), key=lambda p: p.name, reverse=True):
+        f = d / "report.json"
+        if not f.exists() or d.name == "latest":
+            continue
+        try:
+            r = json.loads(f.read_text())
+        except json.JSONDecodeError:
+            continue
+        if (r.get("package") == report["package"] and r.get("candidate", {}).get("source") == report["candidate"]["source"]
+                and sorted(r.get("case_ids") or []) == sorted(report["case_ids"])):
+            return f
+    return None
+
+
+def _point_latest(runs_dir: Path, run_dir: Path) -> None:
+    link = runs_dir / "latest"
+    try:
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(run_dir.name)
+    except OSError:
+        pass
+
+
+def _build_html(run_dirs: list[Path], out: Path) -> Path:
+    from .view.build import build
+    return build([d / "report.json" for d in run_dirs], out)
+
+
+# ───────────────────────── commands ─────────────────────────
 
 def cmd_run(a) -> int:
-    from .runner import run
-    project = Project.load(a.project)
-    out = _out(project, a.out, "run")
-    _, md, code = run(project, a.select, out, source=a.source, previous=a.previous, isolate=a.isolate)
-    print(md)
-    print(f"(report: {out}/report.md)")
+    from . import adapters, references
+    from . import report as rpt
+    from .runner import candidate_python, run
+    from .ports import resolve
+
+    project = _project(a)
+    ids = project.pick(k=a.k, split=a.split)
+    lib, adapter = project.library, adapters.load(project.adapter_name)
+
+    # R references: render missing/stale ones (unless told not to)
+    cases = project.cases()
+    stale = [cases[i] for i in ids if references.load(lib, adapter, cases[i], {}).get("error")]
+    if stale:
+        if a.no_render_r or shutil.which("Rscript") is None:
+            why = "--no-render-r" if a.no_render_r else "Rscript is not on PATH"
+            print(f"plotparity: {len(stale)} R reference(s) missing or stale ({why}): "
+                  f"{', '.join(c.id for c in stale[:8])}{' …' if len(stale) > 8 else ''}", file=sys.stderr)
+        else:
+            print(f"rendering {len(stale)} R reference(s)…", file=sys.stderr)
+            port = resolve(a.from_ or project.cfg["candidate"]["source"], project.package, project.root)
+            references.render(lib, adapter, stale, candidate_python(project, port))
+
+    runs_dir = project.runs_dir
+    out = Path(a.out).resolve() if a.out else runs_dir / dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    previous = None
+    if a.compare:
+        previous = Path(a.compare)
+        previous = previous / "report.json" if previous.is_dir() else previous
+    report, md, code = run(project, None, out, isolate=a.isolate, ids=ids)
+    if previous is None and not a.no_compare and runs_dir.exists():
+        previous = _comparable(runs_dir, report)
+    if previous is not None and previous.exists():
+        rpt.tag_against_previous(report, json.loads(previous.read_text()))
+        md = rpt.write(report, out, True)
+    if out.parent == runs_dir:
+        _point_latest(runs_dir, out)
+    html = None
+    if not a.no_html and project.cfg.get("html", True):
+        html = _build_html([out], out / "report.html")
+    print(md.splitlines()[0] if a.quiet else md)
+    if not a.quiet:
+        print(f"report: {out / 'report.md'}" + (f"\n        {html}" if html else ""))
+    if a.open and html:
+        webbrowser.open(html.as_uri())
     return code
 
 
-def _lib_and_python(path: str):
-    """A library dir (library.toml) or a project dir (parity.toml → its library + its candidate interpreter)."""
-    from .engines.python import engine as py_engine
-    from .project import Library
-    from .runner import candidate_python
-    p = Path(path).resolve()
-    if (p / "library.toml").exists():
-        return Library.load(p), py_engine.interpreter("", p)
-    project = Project.load(p)
-    return project.library, candidate_python(project)
+def cmd_view(a) -> int:
+    targets = [Path(t).resolve() for t in a.runs]
+    if not targets:
+        cfg = _config_path(a)
+        base = cfg.parent if cfg else Path.cwd()
+        runs_dir = (base / ".plotparity" / "runs")
+        latest = _latest(runs_dir)
+        if latest is None:
+            raise UsageError(f"no runs in {runs_dir}; run `plotparity run` first or pass a run directory")
+        targets = [latest]
+    run_dirs = [t.parent if t.suffix == ".json" else t for t in targets]
+    for d in run_dirs:
+        if not (d / "report.json").exists():
+            raise UsageError(f"{d} has no report.json")
+    out = Path(a.out).resolve() if a.out else (run_dirs[0] / ("report.html" if len(run_dirs) == 1 else "compare.html"))
+    html = _build_html(run_dirs, out)
+    print(html)
+    if not a.no_open:
+        webbrowser.open(html.as_uri())
+    return 0
 
 
 def cmd_references(a) -> int:
     from . import adapters, references
-    from .cases import select
-    lib, python = _lib_and_python(a.path)
+    from .engines.python import engine as py_engine
+    from .project import Library, find_cases_root
+
+    paths = [Path(p).resolve() for p in (a.paths or ["."])]
+    roots = {find_cases_root(p) for p in paths}
+    if None in roots or len(roots) != 1:
+        raise UsageError("pass paths inside one cases folder (a folder with cases.toml)")
+    lib = Library.load(roots.pop())
     adapter = adapters.load(lib.adapter_name)
     cases = lib.cases()
-    ids = select(cases, a.select or "all")
-    todo = [cases[i] for i in ids
-            if a.force or references.load(lib, adapter, cases[i], {}).get("error")]
+    picked = [c for c in cases.values() if any(c.path == p or p in c.path.parents for p in paths)]
+    todo = [c for c in picked if a.force or references.load(lib, adapter, c, {}).get("error")]
     if not todo:
         print("all selected references are fresh (use --force to re-render)")
         return 0
-    res = references.render(lib, adapter, todo, python)
+    res = references.render(lib, adapter, todo, py_engine.interpreter("", lib.root))
     print(res["stdout"])
     return 0
 
 
 def cmd_validate(a) -> int:
     from .validate import validate
-    return validate(Project.load(a.project), Path(a.out) if a.out else None)
+    return validate(_project(a), Path(a.out) if a.out else None)
 
 
 def cmd_selftest(a) -> int:
     from .selftest import selftest
-    return selftest(Project.load(a.project), isolate_check=not a.skip_isolate_check)
+    return selftest(_project(a), isolate_check=not a.skip_isolate_check)
 
 
 def cmd_loop(a) -> int:
     from . import loop
-    return loop.dispatch(Project.load(a.project), a)
+    a.source = a.from_
+    return loop.dispatch(_project(a), a)
 
 
 def cmd_new_case(a) -> int:
+    from .project import Library, find_cases_root
     from .scaffold import new_case
-    from .project import Library
-    print(new_case(Library.load(Path(a.library)), a.relpath, a.package))
+    target = Path(a.path).resolve()
+    if target.suffix != ".md":
+        target = target.with_suffix(".md")
+    root = find_cases_root(target.parent if target.parent.exists() else target.parent.parent)
+    if root is None:
+        raise UsageError(f"no cases.toml at or above {target.parent}; create one at the root of your cases folder "
+                         "(e.g. `adapter = \"ggtext\"`) or run `plotparity init`")
+    rel = target.relative_to(root).with_suffix("").as_posix()
+    print(new_case(Library.load(root), rel, a.package or ""))
     return 0
 
 
+def cmd_init(a) -> int:
+    cfg = Path.cwd() / "parity.toml"
+    if cfg.exists():
+        raise UsageError(f"{cfg} already exists")
+    cases_dir = Path(a.cases)
+    lines = ["# plotparity settings for this directory (all optional; command-line flags override them).",
+             f'cases = "{a.cases}"']
+    if a.from_:
+        lines.append(f'from = "{a.from_}"')
+    if a.package:
+        lines.append(f'package = "{a.package}"')
+    lines += ["# requirements = []      # extra packages for the environment the package is tested in",
+              "# known_good = \"\"        # a version known to match R (enables `validate` checks and `selftest`)",
+              "", "# [splits]               # optional: name groups of cases (globs over folder/id)",
+              '# dev = ["geom_*/*"]', '# holdout = ["markup/*"]', ""]
+    cfg.write_text("\n".join(lines))
+    made = [str(cfg)]
+    if not (cases_dir / "cases.toml").exists():
+        cases_dir.mkdir(parents=True, exist_ok=True)
+        (cases_dir / "cases.toml").write_text(
+            f'adapter = "{a.adapter}"\n\n[reference]\npackages = ["ggplot2"]   # R packages each case needs\n\n'
+            "[render]\nwidth_px = 640\nheight_px = 480\ndpi = 72\n")
+        made.append(str(cases_dir / "cases.toml"))
+    gi = Path.cwd() / ".gitignore"
+    text = gi.read_text() if gi.exists() else ""
+    if ".plotparity/" not in text.split():
+        gi.write_text(text + ("" if not text or text.endswith("\n") else "\n") + ".plotparity/\n")
+        made.append(f"{gi} (+ .plotparity/)")
+    print("wrote " + "\n      ".join(made))
+    return 0
+
+
+# ───────────────────────── argument parsing ─────────────────────────
+
+def _common(p, paths_help="case folders or .md files (default: `cases` in parity.toml, else ./parity/ or ./cases/)"):
+    p.add_argument("paths", nargs="*", metavar="PATH", help=paths_help)
+    p.add_argument("--from", dest="from_", metavar="SOURCE",
+                   help="the Python package under test: a directory or git+URL@rev (default: `from` in parity.toml, else .)")
+    p.add_argument("--package", help="import name of the package, if it can't be inferred")
+    p.add_argument("--config", metavar="FILE", help="a parity.toml to use (default: ./parity.toml if present)")
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="plotparity", description=__doc__)
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("run", help="render the candidate and compare against stored references")
-    p.add_argument("project"); p.add_argument("--select"); p.add_argument("--source", help="override candidate source")
-    p.add_argument("--out"); p.add_argument("--previous", help="previous report.json for new/fixed tagging")
-    p.add_argument("--isolate", action="store_true", help="one process per case")
+    ap = argparse.ArgumentParser(prog="plotparity", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True, metavar="COMMAND")
+
+    p = sub.add_parser("run", help="test the package against the cases' R output")
+    _common(p)
+    p.add_argument("-k", metavar="EXPR", help="only cases whose name matches (substring; `or`, `and`, `not`)")
+    p.add_argument("--split", metavar="NAME", help="only cases in this split (from [splits] in parity.toml)")
+    p.add_argument("--out", metavar="DIR", help="where to write the run (default: .plotparity/runs/<timestamp>/)")
+    p.add_argument("--open", action="store_true", help="open report.html when done")
+    p.add_argument("--no-html", action="store_true", help="don't build report.html")
+    p.add_argument("--compare", metavar="RUN", help="tag findings new/fixed against this run (dir or report.json)")
+    p.add_argument("--no-compare", action="store_true",
+                   help="don't tag against the latest earlier run of the same package and cases (the default)")
+    p.add_argument("-q", "--quiet", action="store_true", help="print only the status line")
+    p.add_argument("--no-render-r", action="store_true", help="fail instead of rendering missing or stale R references")
+    p.add_argument("--isolate", action="store_true", help="render each case in its own process (to pin down crashes)")
     p.set_defaults(fn=cmd_run)
-    p = sub.add_parser("references", help="render a library's R references (stale or missing ones by default)")
-    p.add_argument("path", help="library dir (library.toml) or project dir")
-    p.add_argument("--select"); p.add_argument("--force", action="store_true")
-    p.set_defaults(fn=cmd_references)
-    p = sub.add_parser("validate", help="case hygiene + reference freshness (+ known_good port checks)")
-    p.add_argument("project"); p.add_argument("--out"); p.set_defaults(fn=cmd_validate)
-    p = sub.add_parser("selftest", help="mutation suite against the known_good port")
-    p.add_argument("project"); p.add_argument("--skip-isolate-check", action="store_true"); p.set_defaults(fn=cmd_selftest)
-    p = sub.add_parser("loop", help="iteration recorder for an agent porting loop")
-    p.add_argument("action", choices=["init", "iterate", "holdout", "finish"]); p.add_argument("project")
-    p.add_argument("--name", required=True); p.add_argument("--note", default=""); p.add_argument("--goal", default="")
-    p.add_argument("--summary", default=""); p.add_argument("--source", help="candidate source (init only)")
-    p.set_defaults(fn=cmd_loop)
-    p = sub.add_parser("new-case", help="scaffold a case file in a library")
-    p.add_argument("library"); p.add_argument("relpath", help="<feature-folder>/<id>, e.g. geom_richtext/my_case")
-    p.add_argument("--package", default="", help="tag the python block for this port package ('' = default block)")
+
+    p = sub.add_parser("view", help="open the HTML report for the latest run, a given run, or several runs side by side")
+    p.add_argument("runs", nargs="*", metavar="RUN", help="run directories or report.json files (default: the latest run)")
+    p.add_argument("--out", metavar="FILE", help="where to write the HTML (default: inside the first run)")
+    p.add_argument("--no-open", action="store_true", help="write the HTML without opening it")
+    p.add_argument("--config", metavar="FILE", help=argparse.SUPPRESS)
+    p.set_defaults(fn=cmd_view)
+
+    p = sub.add_parser("init", help="write a parity.toml (and a cases.toml if needed) in this directory")
+    p.add_argument("--cases", default="parity", help="cases folder (default: parity)")
+    p.add_argument("--from", dest="from_", metavar="SOURCE", help="the package under test (default: this directory)")
+    p.add_argument("--package", help="import name of the package")
+    p.add_argument("--adapter", default="ggtext", help="extension adapter for a new cases.toml (default: ggtext)")
+    p.set_defaults(fn=cmd_init)
+
+    p = sub.add_parser("new-case", help="create a case file, e.g. parity/markup/my_case.md")
+    p.add_argument("path", help="path of the new case file inside a cases folder")
+    p.add_argument("--package", help="tag the python block for this package (default: an untagged block)")
     p.set_defaults(fn=cmd_new_case)
+
+    p = sub.add_parser("references", help="render R references for cases (missing or stale ones by default)")
+    p.add_argument("paths", nargs="*", metavar="PATH", help="case folders or .md files (default: .)")
+    p.add_argument("--force", action="store_true", help="re-render even if fresh")
+    p.set_defaults(fn=cmd_references)
+
+    p = sub.add_parser("validate", help="check cases: parsing, fresh references, component counts, known_good results")
+    _common(p)
+    p.add_argument("--out", metavar="DIR", help="where to write the known_good run")
+    p.set_defaults(fn=cmd_validate)
+
+    p = sub.add_parser("selftest", help="check the checker: re-run the mutation suite against known_good")
+    _common(p)
+    p.add_argument("--skip-isolate-check", action="store_true", help="skip the batch vs --isolate comparison")
+    p.set_defaults(fn=cmd_selftest)
+
+    p = sub.add_parser("loop", help="record an agent's iterations (init, iterate, holdout, finish)")
+    p.add_argument("action", choices=["init", "iterate", "holdout", "finish"])
+    _common(p)
+    p.add_argument("--name", required=True, help="loop name")
+    p.add_argument("--note", default="", help="iterate: what changed and which finding it addresses")
+    p.add_argument("--goal", default="", help="init: what is being ported")
+    p.add_argument("--summary", default="", help="finish: outcome")
+    p.set_defaults(fn=cmd_loop)
+
     a = ap.parse_args(argv)
     try:
         return a.fn(a)

@@ -70,6 +70,6 @@ def validate(project, out: Path | None = None) -> int:
         print("NOTE", n)
     for p in problems:
         print("PROBLEM", p)
-    print(f"{len(cases)} library cases, {len(in_splits)} in this project's splits. VALIDATE",
+    print(f"{len(cases)} cases, {len(in_splits)} in splits. VALIDATE",
           "PASSED" if not problems else f"FAILED ({len(problems)} problems)")
     return 0 if not problems else 1
