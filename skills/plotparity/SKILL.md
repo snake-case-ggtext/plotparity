@@ -11,10 +11,46 @@ plotparity renders each test case in R (stored references) and in the package, r
 
 ```bash
 PP="uvx --from git+https://github.com/snake-case-ggtext/plotparity plotparity"   # or `plotparity` if installed
+PP="pixi run plotparity"               # if the package uses pixi (see "With pixi" below)
 $PP run --no-html                      # from the package repo, cases in ./parity/
 $PP run path/to/cases --from path/to/package --no-html
 $PP run --no-html -k textbox           # a subset
 ```
+
+### With pixi
+
+A package developed in a [pixi](https://pixi.sh) environment can run plotparity from that
+environment, with no uv. This is setup, done once by a human before any loop:
+
+- Install plotparity into the environment as a PyPI dependency. Use a git URL, or a local clone
+  in editable mode when you're also changing plotparity (an adapter, say):
+  ```toml
+  [tool.pixi.pypi-dependencies]   # or [pypi-dependencies] in pixi.toml
+  plotparity = { git = "https://github.com/snake-case-ggtext/plotparity" }
+  # plotparity = { path = "../plotparity", editable = true }
+  ```
+  The environment must satisfy plotparity's pins (Python ≥ 3.13, plotnine 0.15.9, matplotlib
+  3.11.2). For R references, add `r-base`, `r-ggplot2`, `r-ragg`, `r-systemfonts`, `r-jsonlite` and
+  the extension (`r-<pkg>`) from conda-forge.
+- Set `python` in `parity.toml` to the environment's interpreter, so the package is rendered there
+  rather than in a uv-managed environment:
+  ```toml
+  python = ".pixi/envs/default/bin/python"
+  ```
+- If rendering references fails with "A system font called `DejaVu Sans` already exists",
+  fontconfig already knows a DejaVu Sans (most Linux systems, and conda's font packages), and
+  plotparity can't register its pinned copy. Give R a fontconfig file with no font directories,
+  through the environment's activation:
+  ```toml
+  [tool.pixi.activation.env]
+  FONTCONFIG_FILE = "$PIXI_PROJECT_ROOT/tools/fontconfig/fonts.conf"
+  ```
+  ```xml
+  <?xml version="1.0"?>
+  <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+  <fontconfig><cachedir prefix="relative">../../.pixi/fontconfig-cache</cachedir></fontconfig>
+  ```
+  matplotlib doesn't use fontconfig, so the Python side is unaffected.
 
 Findings are printed in tier order: **inventory → layout → style**. Fix the first tier first; later findings are often consequences (a missing box makes every check on it fail). Each finding names the case, the component (`box[2:'Some text …']/run[1:'blue']`), the check, and R's value vs yours. The report lists both PNG paths; look at them.
 
