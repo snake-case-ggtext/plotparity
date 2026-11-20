@@ -102,7 +102,18 @@ def dispatch(project, a) -> int:
     if a.action == "finish":
         meta.update(finished=_now(), summary=a.summary)
         meta_f.write_text(json.dumps(meta, indent=2))
+        iters = sorted(p for p in d.glob("iter_*") if (p / "report.json").exists())
+        holdouts = sorted(p for p in d.glob("holdout_*") if (p / "report.json").exists())
+        runs = iters + holdouts
         print(f"loop {a.name} finished")
+        if runs:
+            no_html = getattr(a, "no_html", False) or not project.cfg.get("html", True)
+            if not no_html:
+                from .view.build import build
+                out_html = build([r / "report.json" for r in runs], d / "report.html")
+                print(f"report: {out_html}")
+            picked = runs if len(runs) <= 4 else [iters[0], iters[-1], *holdouts[-1:]] if iters else runs[-2:]
+            print("view:   plotparity view " + " ".join(str(p) for p in picked))
         return 0
     raise ValueError(a.action)
 

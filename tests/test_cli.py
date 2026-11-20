@@ -197,3 +197,65 @@ def test_port_ink_counts_ink_outside_first_panel(tmp_path):
     ink = _port_ink(fig, "fake_port", rgba, obs)
     plt.close(fig)
     assert ink is not None and ink > 0
+
+
+def test_data_file_csv_coercion_and_reference_hash(tmp_path):
+    from plotparity import adapters, references
+    from plotparity.cases import CaseError, parse_case
+
+    lib_dir = tmp_path / "cases"
+    (lib_dir / "_assets").mkdir(parents=True)
+    (lib_dir / "cases.toml").write_text('adapter = "ggtext"\n[reference]\npackages = ["ggplot2", "ggtext"]\n')
+    csv_path = lib_dir / "_assets" / "samples.csv"
+    csv_path.write_text("g,x,flag,note\na,1,true,ok\nb,2.5,FALSE,NA\n")
+    case_path = lib_dir / "demo.md"
+    case_path.write_text("---\nid: demo\ndata_file: _assets/samples.csv\n---\nDemo.\n```r\nggplot(data)\n```\n")
+    lib = Library.load(lib_dir)
+    case = parse_case(case_path, lib_dir)
+    tbl = case.table(lib.assets_dir)
+    assert tbl == {"g": ["a", "b"], "x": [1, 2.5], "flag": [True, False], "note": ["ok", None]}
+    adapter = adapters.load("ggtext")
+    h1 = references.input_hash(case, lib, adapter)
+    csv_path.write_text("g,x,flag,note\na,99,true,ok\nb,2.5,FALSE,NA\n")
+    h2 = references.input_hash(case, lib, adapter)
+    assert h1 != h2
+
+    both_path = lib_dir / "both.md"
+    both_path.write_text("---\nid: both\ndata:\n  x: [1]\ndata_file: _assets/samples.csv\n---\n```r\n1\n```\n")
+    with pytest.raises(CaseError, match="not both"):
+        parse_case(both_path, lib_dir)
+
+
+def test_references_k_and_inspect_and_loop_finish_html(tmp_path, capsys):
+    lib = FIXTURES / "cases" / "ggtext"
+    # references -k on fresh fixture prints fresh message and exits 0; unmatched -k exits 3
+    assert main(["references", str(lib), "-k", "rotated_colors"]) == 0
+    assert "fresh" in capsys.readouterr().out
+    assert main(["references", str(lib), "-k", "definitely_no_such_case"]) == 3
+    capsys.readouterr()
+
+    # inspect dumps R reference components cleanly
+    assert main(["inspect", "richtext_example_markup", str(lib)]) == 0
+    out = capsys.readouterr().out
+    assert "CASE: richtext_example_markup" in out and "R reference (4 components)" in out
+
+    # loop finish builds report.html and prints view command
+    proj = Project.load(FIXTURES / "projects" / "ggtext")
+    loop_dir = tmp_path / "loops" / "demo"
+    it0 = loop_dir / "iter_000"
+    it0.mkdir(parents=True)
+    (loop_dir / "meta.json").write_text(json.dumps({"name": "demo", "goal": "g", "source": ".", "package_dir": ".",
+                                                    "created": "2026-01-01", "harness": {}, "finished": None, "summary": None}))
+    (it0 / "report.json").write_text(json.dumps({
+        "status": "pass", "created": "2026-01-01T00:00:00", "project": str(proj.root), "config": str(proj.config_path),
+        "package": proj.package, "cases_root": str(lib), "case_ids": ["richtext_example_markup"],
+        "selection": "dev", "candidate": {"source": ".", "commit": "1234567"}, "profile": {}, "cases": [],
+    }))
+    from types import SimpleNamespace
+    from plotparity import loop as loop_mod
+    fake_proj = SimpleNamespace(runs_dir=tmp_path, cfg={"html": True})
+    rc = loop_mod.dispatch(fake_proj, SimpleNamespace(action="finish", name="demo", summary="done", no_html=False))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert (loop_dir / "report.html").exists()
+    assert "plotparity view" in out

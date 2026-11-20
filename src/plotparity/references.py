@@ -41,6 +41,7 @@ def assets_hash(lib) -> str | None:
 
 
 def input_hash(case: Case, lib, adapter) -> str:
+    df = case.data_file_path(lib.assets_dir)
     parts = {
         "case": case.reference_fingerprint(),
         "assets": assets_hash(lib),
@@ -51,6 +52,8 @@ def input_hash(case: Case, lib, adapter) -> str:
         "observe.R": _sha(Path(adapter.OBSERVE_R)),
         "adapter": [adapter.NAME, adapter.VERSION],
     }
+    if df is not None:
+        parts["data_file_sha"] = _sha(df)
     return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()
 
 
@@ -99,7 +102,7 @@ def load(lib, adapter, case: Case, candidate_fonts: dict) -> dict:
     if meta["input_hash"] != input_hash(case, lib, adapter):
         return {"error": {"kind": "stale_reference",
                           "message": f"reference for {case.id} is stale (case R block/data/assets/render config/R scripts/"
-                                     "adapter changed since it was rendered); run `plotparity references --select "
+                                     "adapter changed since it was rendered); run `plotparity references -k "
                                      + case.id + "`"}}
     if candidate_fonts and meta["font_hashes"] != candidate_fonts:
         return {"error": {"kind": "font_drift",

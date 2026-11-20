@@ -149,7 +149,7 @@ def cmd_view(a) -> int:
 def cmd_references(a) -> int:
     from . import adapters, references
     from .engines.python import engine as py_engine
-    from .project import Library, find_cases_root
+    from .project import Library, find_cases_root, match_k
 
     paths = [Path(p).resolve() for p in (a.paths or ["."])]
     roots = {find_cases_root(p) for p in paths}
@@ -159,6 +159,10 @@ def cmd_references(a) -> int:
     adapter = adapters.load(lib.adapter_name)
     cases = lib.cases()
     picked = [c for c in cases.values() if any(c.path == p or p in c.path.parents for p in paths)]
+    if a.k:
+        picked = [c for c in picked if match_k(a.k, c.id)]
+    if not picked:
+        raise UsageError("no cases selected")
     todo = [c for c in picked if a.force or references.load(lib, adapter, c, {}).get("error")]
     if not todo:
         print("all selected references are fresh (use --force to re-render)")
@@ -170,7 +174,114 @@ def cmd_references(a) -> int:
 
 def cmd_validate(a) -> int:
     from .validate import validate
-    return validate(_project(a), Path(a.out) if a.out else None)
+    return validate(_project(a), Path(a.out) if a.out else None, k=a.k)
+
+
+def _compact_component(comp: dict, raw: bool = False) -> dict:
+    if raw:
+        return comp
+    out = {}
+    for k, v in comp.items():
+        if k in ("text_runs", "lines"):
+            out[k] = f"<{len(v)} items>"
+        elif k == "density" and v is not None:
+            out[k] = f"<{len(v[0])} pts>"
+        elif k in ("fills", "strokes") and isinstance(v, list):
+            out[k] = [{sk: sv for sk, sv in item.items() if sk not in ("top_x", "top_y")} for item in v]
+        elif k == "points" and isinstance(v, list) and len(v) > 8:
+            out[k] = f"<{len(v)} pts>"
+        else:
+            out[k] = v
+    return out
+
+
+def cmd_inspect(a) -> int:
+    from . import adapters
+    from .compare import account_for_drawing
+    from .project import Library, find_cases_root, match_k
+
+    cfg = _config_path(a)
+    lib = None
+    package = a.package
+    runs_dir = None
+    if a.paths:
+        roots = {find_cases_root(Path(p).resolve()) for p in a.paths}
+        if None in roots or len(roots) != 1:
+            raise UsageError("pass paths inside one cases folder (a folder with cases.toml)")
+        lib = Library.load(roots.pop())
+    elif cfg is not None:
+        proj = _project(a)
+        lib = proj.library
+        package = package or proj.package
+        runs_dir = proj.runs_dir
+    else:
+        root = find_cases_root(Path.cwd())
+        if root is None:
+            for d in (Path.cwd() / "parity", Path.cwd() / "cases"):
+                if find_cases_root(d) == d:
+                    root = d
+                    break
+        if root is None:
+            raise UsageError("no cases folder found; pass a cases path or --config parity.toml")
+        lib = Library.load(root)
+    runs_dir = runs_dir or (Path.cwd() / ".plotparity" / "runs")
+    cases = lib.cases()
+    if a.case in cases:
+        case = cases[a.case]
+    else:
+        hits = [c for cid, c in cases.items() if match_k(a.case, cid)]
+        if not hits:
+            raise UsageError(f"no case matching {a.case!r}")
+        if len(hits) > 1:
+            raise UsageError(f"{a.case!r} matched {len(hits)} cases: {[c.id for c in hits[:8]]}")
+        case = hits[0]
+
+    adapter = adapters.load(lib.adapter_name)
+    r = lib.render
+    canvas_pt = (r["width_px"] * 72.0 / r["dpi"], r["height_px"] * 72.0 / r["dpi"])
+    ref_obs_p = lib.references_dir / case.id / "observations.json"
+    ref_obs = json.loads(ref_obs_p.read_text()) if ref_obs_p.exists() else None
+
+    run_dir = Path(a.run).resolve() if a.run else _latest(runs_dir)
+    if run_dir and run_dir.suffix == ".json":
+        run_dir = run_dir.parent
+    cand_obs_p = (run_dir / "render" / case.id / "observations.json") if run_dir else None
+    cand_obs = json.loads(cand_obs_p.read_text()) if (cand_obs_p and cand_obs_p.exists()) else None
+    if not package and run_dir and (run_dir / "report.json").exists():
+        package = json.loads((run_dir / "report.json").read_text()).get("package")
+
+    print(f"CASE: {case.id} ({case.relpath})  adapter={adapter.NAME}  canvas_pt={canvas_pt}")
+    if ref_obs is None:
+        print(f"R reference: missing ({ref_obs_p})")
+        rc = []
+    else:
+        rc, _ = adapter.components("r", ref_obs, case.expect, canvas_pt)
+        print(f"\nR reference ({len(rc)} components)  [{ref_obs_p}]")
+        for i, c in enumerate(rc):
+            print(f"  {adapter.component_id(i, c)}: {json.dumps(_compact_component(c, a.raw), default=str)}")
+    if cand_obs is None:
+        print(f"\nPython candidate: none (checked {cand_obs_p or runs_dir}; pass --run DIR)")
+        return 0
+    cc_all, assigned = adapter.components("python", cand_obs, case.expect, canvas_pt)
+    cc = [c for c in cc_all if adapter.in_scope(c, rc)] if hasattr(adapter, "in_scope") else cc_all
+    print(f"\nPython candidate ({len(cc)} in-scope / {len(cc_all)} total)  [{cand_obs_p}]")
+    if package and "owners" in cand_obs:
+        unexplained, drawing = account_for_drawing(cand_obs, package, assigned)
+        print(f"  drawing: port={drawing['port_events']} (assigned={drawing['port_assigned']}), "
+              f"other={drawing['other_layer_events']}, unowned={drawing['unowned_events']}, "
+              f"unexplained={len(unexplained)}, port_ink_px={cand_obs.get('port_ink_px')}")
+    for j, c in enumerate(cc):
+        print(f"  [{j + 1}] {adapter.component_id(j, c)}: {json.dumps(_compact_component(c, a.raw), default=str)}")
+    if rc or cc:
+        pairs, missing, unexpected = adapter.match(rc, cc)
+        print(f"\nMatching: {len(pairs)} paired, {len(missing)} missing, {len(unexpected)} unexpected")
+        for i, j in pairs:
+            print(f"  pair: R {adapter.component_id(i, rc[i])}  <->  Py [{j + 1}] {adapter.component_id(j, cc[j])}")
+        for i in missing:
+            print(f"  missing: R {adapter.component_id(i, rc[i])}")
+        for j in unexpected:
+            print(f"  unexpected: Py unmatched_candidate[{j + 1}] {adapter.describe_component(cc[j])}")
+    return 0
 
 
 def cmd_selftest(a) -> int:
@@ -283,13 +394,24 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("references", help="render R references for cases (missing or stale ones by default)")
     p.add_argument("paths", nargs="*", metavar="PATH", help="case folders or .md files (default: .)")
+    p.add_argument("-k", metavar="EXPR", help="only cases whose name matches (substring; `or`, `and`, `not`)")
     p.add_argument("--force", action="store_true", help="re-render even if fresh")
     p.set_defaults(fn=cmd_references)
 
     p = sub.add_parser("validate", help="check cases: parsing, fresh references, component counts, known_good results")
     _common(p)
+    p.add_argument("-k", metavar="EXPR", help="only cases whose name matches (substring; `or`, `and`, `not`)")
     p.add_argument("--out", metavar="DIR", help="where to write the known_good run")
     p.set_defaults(fn=cmd_validate)
+
+    p = sub.add_parser("inspect", help="dump extracted R vs Python components and pairing for one case")
+    p.add_argument("case", metavar="CASE", help="case id or unique substring")
+    p.add_argument("paths", nargs="*", metavar="PATH", help="cases folder (default: parity.toml or ./parity/)")
+    p.add_argument("--run", metavar="DIR", help="run directory or report.json (default: latest run)")
+    p.add_argument("--raw", action="store_true", help="show full component dicts without truncating arrays")
+    p.add_argument("--package", help="import name of the package (for drawing ownership summary)")
+    p.add_argument("--config", metavar="FILE", help="a parity.toml to use (default: ./parity.toml if present)")
+    p.set_defaults(fn=cmd_inspect)
 
     p = sub.add_parser("selftest", help="check the checker: re-run the mutation suite against known_good")
     _common(p)
@@ -303,6 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--note", default="", help="iterate: what changed and which finding it addresses")
     p.add_argument("--goal", default="", help="init: what is being ported")
     p.add_argument("--summary", default="", help="finish: outcome")
+    p.add_argument("--no-html", action="store_true", help="finish: don't build report.html")
     p.set_defaults(fn=cmd_loop)
 
     a = ap.parse_args(argv)

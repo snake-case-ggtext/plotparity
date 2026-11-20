@@ -18,12 +18,18 @@ from .engines.python import engine as py_engine
 from .runner import candidate_python, run
 
 
-def validate(project, out: Path | None = None) -> int:
+def validate(project, out: Path | None = None, k: str | None = None) -> int:
+    from .project import UsageError, match_k
+
     problems: list[str] = []
     notes: list[str] = []
     lib = project.library
     adapter = adapters.load(lib.adapter_name)
     cases = lib.cases()                                       # parsing errors raise (exit 3)
+    if k:
+        cases = {cid: c for cid, c in cases.items() if match_k(k, cid)}
+        if not cases:
+            raise UsageError(f"no cases matched -k {k!r}")
     env = py_engine.environment(candidate_python(project))
     for cid, c in cases.items():
         bad = set(c.expect) - {"components", "measurable"} - set(adapter.EXPECT_KEYS)
@@ -50,7 +56,7 @@ def validate(project, out: Path | None = None) -> int:
             port = Path(td) / "kg"
             shutil.copytree(kg, port, ignore=shutil.ignore_patterns(".venv", "__pycache__", ".pytest_cache", ".git"))
             sel = ",".join(project.splits) or "all"
-            rep, _, _ = run(project, sel, out, source=str(port))
+            rep, _, _ = run(project, sel, out, source=str(port), ids=list(cases) if k else None)
         for c in rep["cases"]:
             fails = sorted({f["check"] for f in c["findings"] if f["status"] in ("fail", "unmeasured")})
             if c["split"] in ("dev", "holdout") and c["status"] != "pass":
