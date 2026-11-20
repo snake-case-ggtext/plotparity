@@ -1,6 +1,6 @@
 {
   "case": "richtext_feature_matrix_scripts",
-  "input_hash": "bb54df97d25f73ccb628309a6e715f500d27745fa3b671f66b426a5e692d60bf",
+  "input_hash": "597258c1d8b6d3090f560d9a2bde22001e4062ba994e37b55418dd039f4026f0",
   "font_hashes": {
     "DejaVuSans.ttf": "3fdf69cabf06049e",
     "DejaVuSans-Bold.ttf": "b184b89e3c1075f2",
@@ -11,7 +11,7 @@
     "r_version": "R version 4.3.2 (2023-10-31)",
     "platform": "aarch64-apple-darwin20",
     "packages": {
-      "ggplot2": "3.5.0",
+      "ggplot2": "3.5.2",
       "ggtext": "0.1.2",
       "ragg": "1.2.7",
       "systemfonts": "1.2.3",

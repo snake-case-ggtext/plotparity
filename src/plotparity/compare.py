@@ -498,16 +498,25 @@ def evaluate_case(case, adapter, profile: dict, known: list[dict], ref: dict, ca
                 if needs in r:
                     served.setdefault(fn, []).append(name)
             for fn, names in served.items():
-                ran(comp, names, fn(r, c, profile, add_pair, ctx) is not False)
+                if all(profile[n]["severity"] == "off" for n in names):
+                    ran(comp, names)
+                else:
+                    ran(comp, names, fn(r, c, profile, add_pair, ctx) is not False)
             for name, fn in adapter.CHECKS.items():
-                ran(comp, (name,), fn(r, c, profile[name], add_pair, expect) is not False)
+                if profile[name]["severity"] == "off":
+                    ran(comp, (name,))
+                else:
+                    ran(comp, (name,), fn(r, c, profile[name], add_pair, expect) is not False)
 
         def add_case(check, expected, observed, message, delta=None, status="fail", sub=None):
             add(check, f"{CASE}/{sub}" if sub else CASE, expected, observed, message, delta, status)
 
         # whole-plot checks (e.g. paint order): fn(ref_components, cand_components, pairs, P, add, expect)
         for name, fn in getattr(adapter, "CASE_CHECKS", {}).items():
-            ran(CASE, (name,), fn(rc, cc, pairs, profile[name], add_case, expect) is not False)
+            if profile[name]["severity"] == "off":
+                ran(CASE, (name,))
+            else:
+                ran(CASE, (name,), fn(rc, cc, pairs, profile[name], add_case, expect) is not False)
     except Exception as exc:  # noqa: BLE001  — a crashing check must never become a pass
         add("check_error", "comparator", None, f"{type(exc).__name__}: {exc}",
             f"Comparator raised {type(exc).__name__}: {exc}", status="infrastructure_error")

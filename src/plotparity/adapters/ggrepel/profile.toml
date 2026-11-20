@@ -1,0 +1,104 @@
+# ggrepel adapter profile: inventory + collision invariants + label/box/segment style.
+
+[checks.component_count]
+severity = "gating"
+tier = "inventory"
+
+[checks.missing_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_drawing]
+severity = "gating"
+tier = "inventory"
+
+[checks.extractor_blind]
+severity = "gating"
+tier = "inventory"
+
+[checks.label_no_overlap]
+severity = "gating"
+tier = "layout"
+calibration = "overlapping label pairs <= R"
+
+[checks.label_no_point_overlap]
+severity = "gating"
+tier = "layout"
+tol = 0
+calibration = "labels covering panel anchor points <= R"
+
+[checks.label_inside_panel]
+severity = "gating"
+tier = "layout"
+tol = 3.0
+calibration = "pt outside panel bbox"
+
+[checks.segment_count]
+severity = "gating"
+tier = "inventory"
+calibration = "leader segment presence when R draws all or none"
+
+[checks.segment_connects]
+severity = "gating"
+tier = "layout"
+tol = 6.0
+calibration = "pt gap from segment endpoints to label box and anchor point"
+
+[checks.label_text_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000; alpha abs; fontsize ±1pt"
+
+[checks.label_box_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000; alpha abs; box presence & rounding"
+
+# generic text/frame checks replaced by repel-specific checks above
+[checks.text_content]
+severity = "off"
+tier = "inventory"
+[checks.text_color]
+severity = "off"
+tier = "style"
+[checks.text_alpha]
+severity = "off"
+tier = "style"
+[checks.font_weight]
+severity = "off"
+tier = "style"
+[checks.font_style]
+severity = "off"
+tier = "style"
+[checks.font_size]
+severity = "off"
+tier = "style"
+[checks.text_visible]
+severity = "off"
+tier = "inventory"
+[checks.ink_present]
+severity = "off"
+tier = "inventory"
+[checks.rotation]
+severity = "off"
+tier = "layout"
+[checks.centroid]
+severity = "off"
+tier = "layout"
+[checks.fill_color]
+severity = "off"
+tier = "style"
+[checks.edge_color]
+severity = "off"
+tier = "style"
+[checks.shape_size]
+severity = "off"
+tier = "layout"

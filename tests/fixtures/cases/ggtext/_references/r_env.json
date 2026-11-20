@@ -2,7 +2,7 @@
   "r_version": "R version 4.3.2 (2023-10-31)",
   "platform": "aarch64-apple-darwin20",
   "packages": {
-    "ggplot2": "3.5.0",
+    "ggplot2": "3.5.2",
     "ggtext": "0.1.2",
     "ragg": "1.2.7",
     "systemfonts": "1.2.3",

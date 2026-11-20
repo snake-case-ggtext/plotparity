@@ -1,6 +1,6 @@
 {
   "case": "textbox_native_no_wrap",
-  "input_hash": "45c94447eca079634768c0ada5135ef200fe2445915d0de3df9fc67f25033838",
+  "input_hash": "bef246a0dda43e32b0a48c3563d9511304dde5434468b7a6991165b7f582d62d",
   "font_hashes": {
     "DejaVuSans.ttf": "3fdf69cabf06049e",
     "DejaVuSans-Bold.ttf": "b184b89e3c1075f2",
@@ -11,7 +11,7 @@
     "r_version": "R version 4.3.2 (2023-10-31)",
     "platform": "aarch64-apple-darwin20",
     "packages": {
-      "ggplot2": "3.5.0",
+      "ggplot2": "3.5.2",
       "ggtext": "0.1.2",
       "ragg": "1.2.7",
       "systemfonts": "1.2.3",

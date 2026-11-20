@@ -66,16 +66,21 @@ Calibrate tolerances on clean pairs only (R vs a package known to be correct) an
 2. Run them against a known-good package; every case should pass (`plotparity validate`).
 3. Write mutations: patches that break one thing each in the known-good package (`mutations/*.patch` + `suite.toml`). Each must visibly change the render and fail the check you expect (`plotparity selftest`).
 
-## observe_py.py
+## observe_py.py & shared `panel_geometry`
 
-`observe(fig, plot) -> dict` runs in the package's interpreter right after the recorded draw; its keys are merged into the Python observations. Only plotnine, matplotlib, pandas and numpy are available there. The core probe already records every draw call; use this hook for what the draw calls don't carry (ggridges: plotnine's built layer data, and the panel's shapes in data units).
+`observe(fig, plot) -> dict` runs in the package's interpreter right after the recorded draw; its keys are merged into the Python observations. Only plotnine, matplotlib, pandas and numpy are available there. The core probe already records every draw call (including decoded `draw_path_collection` offsets/styles up to 500 items for draw-time custom artists); use this hook for what draw calls don't carry (built layer data, panel ranges/labels, or static panel shapes in data units).
 
-## The two adapters
+For geom extensions that work on panel points, polygons, lines, segments, or rasters across single or facetted panels, opt in to the shared multi-panel extractors instead of writing your own grob/artist walkers:
 
-| | ggtext | ggridges |
-| --- | --- | --- |
-| component | a rich-text box or theme-element label | a ridge |
-| R side | gridtext grobs; the gtable for theme elements | panel polygons/lines in paint order; `ggplot_build` density |
-| Python side | the probe's draw calls, roles tagged on themed artists | `observe_py`: panel artists in draw order; built layer data |
-| matching | position + shared words; theme elements by role and order | by level |
-| whole-plot checks | | paint order |
+- **R (`engines/r/panel_geometry.R`, auto-sourced by `render.R`):** call `extract_panel_geometry(p, w_in, h_in, dpi, kinds = c("points", "shapes", "rasters"))`. Handles single/facetted panel viewport ordering, `coord_flip()`, R `pch` `0.75 * fontsize` char sizing, vectorized `segments` `gpar`, `lwd * 72/96`, and degenerate `roundrectGrob(r = 0)` vertices.
+- **Python (`plotparity.engines.python.panel_geometry`):** call `extract_panel_geometry(fig, plot, kinds=("points", "shapes", "rasters"))`. Handles multi-panel `fig.axes`, `scale_discrete` (including `scale_x_ordinal`), `coord_flip()`, `PathCollection` diameter conversion, and returns `extracted_classes` for `account_for_drawing()`.
+
+## Adapters
+
+| | ggtext | ggridges | ggbeeswarm | ggrepel |
+| --- | --- | --- | --- | --- |
+| component | rich-text box or theme-element label | a ridge | a `(panel, group)` point swarm | a repelled text/label annotation |
+| R side | gridtext grobs; gtable chrome | panel polygons/lines; `ggplot_build` density | `extract_panel_geometry(..., "points")` | forced `textrepeltree`/`labelrepeltree` + panel points |
+| Python side | probe draw calls + theme roles | `observe_py`: panel artists + built data | `extract_panel_geometry(..., ("points",))` | probe draw calls (labels/boxes/segments) + `extract_panel_geometry` points |
+| matching | position + words; chrome by role & order | by level | by `(panel, level)` | by `(panel, exact text)` |
+| whole-plot checks | | `paint_order` | | `label_no_overlap`, `label_no_point_overlap`, `segment_count` |

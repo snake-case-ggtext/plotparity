@@ -19,6 +19,7 @@ from .cases import Case
 from .engines.python import engine as py_engine
 
 RENDER_R = Path(__file__).resolve().parent / "engines" / "r" / "render.R"
+PANEL_GEOM_R = Path(__file__).resolve().parent / "engines" / "r" / "panel_geometry.R"
 R_TIMEOUT_S = 120          # per case: a hung R graphics device must not stall CI
 
 
@@ -49,6 +50,7 @@ def input_hash(case: Case, lib, adapter) -> str:
         # not `lib`: where the R library lives is irrelevant (package versions are recorded in meta.json)
         "reference": {k: lib.cfg["reference"][k] for k in ("engine", "packages")},
         "render.R": _sha(RENDER_R),
+        "panel_geometry.R": _sha(PANEL_GEOM_R),
         "observe.R": _sha(Path(adapter.OBSERVE_R)),
         "adapter": [adapter.NAME, adapter.VERSION],
     }

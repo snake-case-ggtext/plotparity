@@ -343,7 +343,66 @@ def _route_recorder(route: str):
     return method
 
 
-for _route in ("draw_path_collection", "draw_markers", "draw_gouraud_triangles", "draw_quad_mesh", "draw_tex"):
+_MAX_COLLECTION_OFFSETS = 500
+
+
+def _draw_path_collection(self, gc, master_transform, paths, all_transforms, offsets, offset_trans,
+                          facecolors, edgecolors, linewidths, linestyles, antialiaseds, urls, offset_position,
+                          *args, **kwargs):
+    """Record draw_path_collection with lightweight decoded offsets/styles (up to 500 items),
+    so draw-time custom artists (e.g. dotplots) are observable in one pass without re-rendering."""
+    self._paint_index += 1
+    clip = gc.get_clip_rectangle()
+    ev: dict[str, Any] = {
+        "kind": "draw_path_collection",
+        "paint_index": self._paint_index,
+        "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(), **self._role(),
+        "clip_bbox_norm_tl": (bbox_bl_to_norm_tl(clip.x0, clip.y0, clip.x1, clip.y1, self._fig_w, self._fig_h)
+                              if clip is not None else None),
+    }
+    try:
+        offs = np.asarray(offsets, dtype=float)
+        n = len(offs) if offs.ndim == 2 else 0
+        ev["n_offsets"] = int(n)
+        if 0 < n <= _MAX_COLLECTION_OFFSETS:
+            disp = offset_trans.transform(offs) if offset_trans is not None else offs
+            ev["offsets_norm_tl"] = [[round(float(x) / self._fig_w, 5), round(1.0 - float(y) / self._fig_h, 5)]
+                                     for x, y in disp]
+            if facecolors is not None and len(facecolors):
+                ev["facecolors_hex"] = [rgba_to_hex(c)[0] for c in facecolors[:_MAX_COLLECTION_OFFSETS]]
+            if edgecolors is not None and len(edgecolors):
+                ev["edgecolors_hex"] = [rgba_to_hex(c)[0] for c in edgecolors[:_MAX_COLLECTION_OFFSETS]]
+            if linewidths is not None and len(linewidths):
+                ev["linewidths_pt"] = [round(float(w), 3) for w in linewidths[:_MAX_COLLECTION_OFFSETS]]
+            if paths:
+                # Marker bounding size in pt from first path + transform (composing all_transforms[0] and master_transform)
+                p0 = paths[0]
+                if all_transforms is not None and len(all_transforms):
+                    from matplotlib.transforms import Affine2D
+                    t0 = Affine2D(all_transforms[0])
+                    if master_transform is not None:
+                        t0 = t0 + master_transform
+                    p0 = p0.transformed(t0)
+                elif master_transform is not None:
+                    p0 = p0.transformed(master_transform)
+                v = p0.vertices
+                if len(v) and np.all(np.isfinite(v)):
+                    ev["marker_size_pt"] = [round(float(np.ptp(v[:, 0])) * 72.0 / self._dpi, 3),
+                                            round(float(np.ptp(v[:, 1])) * 72.0 / self._dpi, 3)]
+    except Exception:
+        pass
+    self.events.append(ev)
+    return self._wrapped.draw_path_collection(
+        gc, master_transform, paths, all_transforms, offsets, offset_trans,
+        facecolors, edgecolors, linewidths, linestyles, antialiaseds, urls, offset_position,
+        *args, **kwargs,
+    )
+
+
+RecordingRendererProxy.draw_path_collection = _draw_path_collection
+
+
+for _route in ("draw_markers", "draw_gouraud_triangles", "draw_quad_mesh", "draw_tex"):
     setattr(RecordingRendererProxy, _route, _route_recorder(_route))
 
 

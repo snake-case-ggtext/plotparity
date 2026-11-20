@@ -1,0 +1,107 @@
+# ggbeeswarm adapter profile: point-swarm parity across panels, orientations, and dodging.
+
+[checks.component_count]
+severity = "gating"
+tier = "inventory"
+
+[checks.missing_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_drawing]
+severity = "gating"
+tier = "inventory"
+
+[checks.extractor_blind]
+severity = "gating"
+tier = "inventory"
+
+[checks.point_count]
+severity = "gating"
+tier = "inventory"
+calibration = "exact point count per group"
+
+[checks.value_axis]
+severity = "gating"
+tier = "layout"
+tol = 1.0
+calibration = "pt; continuous-axis values must not shift"
+
+[checks.swarm_center]
+severity = "gating"
+tier = "layout"
+tol = 4.0
+calibration = "pt; mean position along categorical axis (catches side/dodge bugs)"
+
+[checks.swarm_spread]
+severity = "gating"
+tier = "layout"
+tol = 5.0
+rel_tol = 0.22
+calibration = "pt, or rel_tol × R spread (half-width & IQR)"
+
+[checks.swarm_distribution]
+severity = "gating"
+tier = "layout"
+tol = 4.0
+rel_tol = 0.15
+calibration = "pt; 1D Wasserstein distance of categorical offsets"
+
+[checks.point_overlap]
+severity = "gating"
+tier = "layout"
+tol = 0.25
+calibration = "excess fraction of points closer than 0.75× diameter when R separates them"
+
+[checks.point_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+rel_tol = 0.15
+calibration = "CIEDE2000; alpha abs; diameter rel"
+
+# text and frame checks don't apply to point swarms
+[checks.text_content]
+severity = "off"
+tier = "inventory"
+[checks.text_color]
+severity = "off"
+tier = "style"
+[checks.text_alpha]
+severity = "off"
+tier = "style"
+[checks.font_weight]
+severity = "off"
+tier = "style"
+[checks.font_style]
+severity = "off"
+tier = "style"
+[checks.font_size]
+severity = "off"
+tier = "style"
+[checks.text_visible]
+severity = "off"
+tier = "inventory"
+[checks.ink_present]
+severity = "off"
+tier = "inventory"
+[checks.rotation]
+severity = "off"
+tier = "layout"
+[checks.centroid]
+severity = "off"
+tier = "layout"
+[checks.fill_color]
+severity = "off"
+tier = "style"
+[checks.edge_color]
+severity = "off"
+tier = "style"
+[checks.shape_size]
+severity = "off"
+tier = "layout"

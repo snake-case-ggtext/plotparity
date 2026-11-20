@@ -25,6 +25,8 @@ font_family <- "DejaVu Sans"
 theme_set(theme_grey(base_family = font_family))
 
 PT_PER_MM <- 72.27 / 25.4
+.r_dir <- dirname(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1]))
+if (file.exists(file.path(.r_dir, "panel_geometry.R"))) source(file.path(.r_dir, "panel_geometry.R"))
 source(job$observe_r)                       # defines adapter_setup(family) and adapter_observe(p, w_in, h_in, dpi)
 adapter_setup(font_family)
 

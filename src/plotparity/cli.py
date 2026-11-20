@@ -182,14 +182,14 @@ def _compact_component(comp: dict, raw: bool = False) -> dict:
         return comp
     out = {}
     for k, v in comp.items():
-        if k in ("text_runs", "lines"):
+        if k in ("text_runs", "lines", "panel_points"):
             out[k] = f"<{len(v)} items>"
         elif k == "density" and v is not None:
             out[k] = f"<{len(v[0])} pts>"
         elif k in ("fills", "strokes") and isinstance(v, list):
             out[k] = [{sk: sv for sk, sv in item.items() if sk not in ("top_x", "top_y")} for item in v]
-        elif k == "points" and isinstance(v, list) and len(v) > 8:
-            out[k] = f"<{len(v)} pts>"
+        elif isinstance(v, list) and len(v) > 10:
+            out[k] = f"<{len(v)} items>"
         else:
             out[k] = v
     return out

@@ -201,7 +201,7 @@
         ]
       }
     ],
-    "extraction_ms": 119
+    "extraction_ms": 72
   },
   "ggtext_chrome": {
     "engine": "r",
