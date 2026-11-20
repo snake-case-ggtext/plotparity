@@ -206,9 +206,11 @@ def build(report_files: list[Path], out: Path, public: bool = False) -> Path:
             cid = c["case"]
             case = lib_cases.get(cid)
             ref_key, cand_key = f"ref:{cid}", f"{run_id}:{cid}"
-            if ref_key not in images:
-                images[ref_key], sizes[ref_key] = _img(c.get("reference_png"))
-            images[cand_key], sizes[cand_key] = _img(c.get("candidate_png"))
+            ref_png = c.get("reference_png") or (str(ref_dir / cid / "reference.png") if ref_dir is not None else None)
+            cand_png = c.get("candidate_png") or str(run_dir / "render" / cid / "candidate.png")
+            if not images.get(ref_key):
+                images[ref_key], sizes[ref_key] = _img(ref_png)
+            images[cand_key], sizes[cand_key] = _img(cand_png)
             geom = {}
             if library is not None and case is not None and ref_dir is not None:
                 geom = _geometry(library, case, ref_dir / cid / "observations.json",
@@ -217,7 +219,7 @@ def build(report_files: list[Path], out: Path, public: bool = False) -> Path:
                 case_meta[cid] = {"why": case.why, "relpath": case.relpath, "r": case.r_code,
                                   "python": case.python, "source": case.front_matter.get("source", "")}
             cases.append({**{k: c.get(k) for k in ("case", "relpath", "split", "status", "findings", "known")},
-                          "render_hash": _pixel_hash(c.get("candidate_png")),
+                          "render_hash": _pixel_hash(cand_png),
                           "ref_img": ref_key if images.get(ref_key) else "",
                           "cand_img": cand_key if images.get(cand_key) else "", "geom": geom})
         notes = _loop_notes(run_dir)
