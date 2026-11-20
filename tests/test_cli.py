@@ -259,3 +259,44 @@ def test_references_k_and_inspect_and_loop_finish_html(tmp_path, capsys):
     out = capsys.readouterr().out
     assert (loop_dir / "report.html").exists()
     assert "plotparity view" in out
+
+
+def test_clean_room_flag_and_calibrate_command(tmp_path, capsys):
+    from plotparity.project import ConfigError
+    from plotparity.report import to_markdown
+
+    lib = FIXTURES / "cases" / "ggtext"
+    cfg = tmp_path / "parity.toml"
+    cfg.write_text(f'cases = "{lib}"\nfrom = "{tmp_path}"\npackage = "demo"\nclean_room = true\n')
+    proj = Project.load(cfg)
+    assert proj.clean_room is True
+    md = to_markdown({"status": "pass", "clean_room": True, "cases": []})
+    assert "CLEAN-ROOM:" in md
+
+    bad_cfg = tmp_path / "bad.toml"
+    bad_cfg.write_text(f'cases = "{lib}"\nfrom = "{tmp_path}"\npackage = "demo"\nclean_room = "yes"\n')
+    with pytest.raises(ConfigError, match="clean_room"):
+        Project.load(bad_cfg)
+
+    # calibrate on a run dir with stored observations
+    cid = "richtext_example_markup"
+    run_dir = tmp_path / "cal_run"
+    cdir = run_dir / "render" / cid
+    cdir.mkdir(parents=True)
+    # Build minimal python observations with one shifted box so calibrate reports a non-zero delta
+    cand_obs = {
+        "figure_px": [640, 480], "dpi": 72.0, "panels_norm_tl": [[0.1, 0.1, 0.9, 0.9]], "owners": [], "roles": [],
+        "events": [{"kind": "text", "paint_index": 1, "groups": ["axes", "richtext"], "group_ids": [1, 2],
+                    "owner": None, "text": "Some text", "x_norm": 0.25, "y_norm": 0.5, "color_hex": "#000000",
+                    "alpha": 1.0, "fontsize_pt": 11.5, "fontweight": "normal", "fontstyle": "normal", "angle_deg": 0.0}],
+    }
+    (cdir / "observations.json").write_text(json.dumps(cand_obs))
+    rep = {
+        "status": "pass", "package": "plotnine_ggtext", "cases_root": str(lib), "case_ids": [cid],
+        "cases": [{"case": cid, "status": "pass", "findings": [], "reference_png": None, "candidate_png": None}],
+    }
+    (run_dir / "report.json").write_text(json.dumps(rep))
+    assert main(["calibrate", str(run_dir)]) == 0
+    out = capsys.readouterr().out
+    assert "CALIBRATION SUMMARY (1 cases, adapter=ggtext" in out
+    assert "font_size" in out or "centroid" in out

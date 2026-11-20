@@ -76,7 +76,7 @@ def dispatch(project, a) -> int:
         env = py_engine.environment(candidate_python(project))
         d.mkdir(parents=True)
         meta = {"name": a.name, "goal": a.goal, "source": str(port.root), "package_dir": str(port.package_parent / project.cfg["candidate"]["package"]),
-                "created": _now(), "harness": harness_hash(project, env), "finished": None, "summary": None}
+                "clean_room": project.clean_room, "created": _now(), "harness": harness_hash(project, env), "finished": None, "summary": None}
         meta_f.write_text(json.dumps(meta, indent=2))
         return _iterate(project, d, meta, "baseline (starting point)")
     if not meta_f.exists():

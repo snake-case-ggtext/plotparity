@@ -80,7 +80,7 @@ For geom extensions that work on panel points, polygons, lines, segments, or ras
 | | ggtext | ggridges | ggbeeswarm | ggrepel |
 | --- | --- | --- | --- | --- |
 | component | rich-text box or theme-element label | a ridge | a `(panel, group)` point swarm | a repelled text/label annotation |
-| R side | gridtext grobs; gtable chrome | panel polygons/lines; `ggplot_build` density | `extract_panel_geometry(..., "points")` | forced `textrepeltree`/`labelrepeltree` + panel points |
-| Python side | probe draw calls + theme roles | `observe_py`: panel artists + built data | `extract_panel_geometry(..., ("points",))` | probe draw calls (labels/boxes/segments) + `extract_panel_geometry` points |
+| R side | gridtext grobs; gtable chrome | `extract_panel_geometry(..., "shapes")` + `ggplot_build` density | `extract_panel_geometry(..., "points")` | forced `textrepeltree`/`labelrepeltree` + panel points |
+| Python side | probe draw calls + theme roles | `extract_panel_geometry(..., ("shapes",))` + built data | `extract_panel_geometry(..., ("points",))` | probe draw calls (labels/boxes/segments) + `extract_panel_geometry` points |
 | matching | position + words; chrome by role & order | by level | by `(panel, level)` | by `(panel, exact text)` |
 | whole-plot checks | | `paint_order` | | `label_no_overlap`, `label_no_point_overlap`, `segment_count` |

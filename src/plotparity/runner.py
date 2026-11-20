@@ -91,6 +91,7 @@ def run(project, selector: str | None, out: Path, source: str | None = None, pre
         "created": dt.datetime.now().isoformat(timespec="seconds"),
         "project": str(project.root), "config": str(project.config_path) if project.config_path else None,
         "package": project.package, "cases_root": str(project.library.root), "case_ids": ids,
+        "clean_room": project.clean_room,
         "selection": selector or (project.cfg["project"]["default_select"] if ids is None else f"{len(ids)} cases"),
         "candidate": {"source": port.source, "root": str(port.root), "commit": port.commit, "dirty": port.dirty,
                       "python": python, "environment": env},

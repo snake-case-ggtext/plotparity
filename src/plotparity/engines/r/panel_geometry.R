@@ -145,7 +145,7 @@ extract_panel_geometry <- function(p, w_in, h_in, dpi, kinds = c("points", "shap
           xs <- convertX(gr$x, "npc", valueOnly = TRUE); ys <- convertY(gr$y, "npc", valueOnly = TRUE)
           id <- if (!is.null(gr$id)) gr$id else if (!is.null(gr$pathId)) gr$pathId else rep(1L, length(xs))
           lty <- gr$gp$lty
-          lwd <- if (is.null(gr$gp$lwd) || is.na(gr$gp$lwd[1])) NA_real_ else as.numeric(gr$gp$lwd[1])
+          lwd <- if (is.null(gr$gp$lwd)) 1 else if (is.na(gr$gp$lwd[1])) NA_real_ else as.numeric(gr$gp$lwd[1])
           blank <- (!is.null(lty) && as.character(lty[1]) %in% c("0", "blank")) || (!is.na(lwd) && lwd <= 0)
           c1 <- if (blank || is.null(gr$gp$col)) list(hex = "none", alpha = 0) else pg_col(gr$gp$col)
           f1 <- if (filled) pg_col(gr$gp$fill) else list(hex = "none", alpha = 0)

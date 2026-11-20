@@ -5,7 +5,7 @@ description: Make a Python/plotnine package render like its ggplot2 original, us
 
 # Working on a plotnine package with plotparity
 
-plotparity renders each test case in R (stored references) and in the package, records the draw calls on both sides, and reports what differs. **The spec is R's behaviour.** Inspect R's documented API (`?pkg::fn`, `args(pkg::fn)`), built layer data (`ggplot2::ggplot_build(p)`), and rendered outputs, and use the findings to see where the Python side still differs. *(Clean-room rule: only read an R package's source code when its license is compatible with your port; for MIT/BSD ports of GPL-3 R packages, rely on docs, built outputs, and black-box behaviour only.)*
+plotparity renders each test case in R (stored references) and in the package, records the draw calls on both sides, and reports what differs. **The spec is R's behaviour.** Inspect R's documented API (`?pkg::fn`, `args(pkg::fn)`), built layer data (`ggplot2::ggplot_build(p)`), and rendered outputs, and use the findings to see where the Python side still differs. *(Clean-room rule: only read an R package's source code when its license is compatible with your port; for MIT/BSD ports of GPL-3 R packages — or whenever `clean_room = true` is set in `parity.toml` — rely on docs, built outputs, and black-box behaviour only.)*
 
 ## Run
 

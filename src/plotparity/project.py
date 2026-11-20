@@ -23,7 +23,7 @@ CASES_SCHEMA = {"adapter", "reference", "render", "library"}
 REF_KEYS = {"engine", "packages", "lib"}
 RENDER_KEYS = {"width_px", "height_px", "dpi"}
 CONFIG_KEYS = {"cases", "from", "package", "requirements", "python", "install", "api", "known_good", "out", "html",
-               "default_split", "timeout_s", "splits", "profile"}
+               "default_split", "timeout_s", "splits", "profile", "clean_room"}
 
 
 class ConfigError(ValueError):
@@ -182,6 +182,8 @@ class Project:
         for name, globs in splits.items():
             if name == "all" or not isinstance(globs, list):
                 raise ConfigError(f"parity.toml [splits] {name}: must be a list of globs (and not named 'all')")
+        if "clean_room" in raw and not isinstance(raw["clean_room"], bool):
+            raise ConfigError("parity.toml `clean_room` must be true or false")
         cfg = {
             "project": {"default_select": raw.get("default_split", "all" if not splits else "dev"),
                         "default_split": raw.get("default_split")},
@@ -193,6 +195,7 @@ class Project:
             "render": {"timeout_s": raw.get("timeout_s", 60)},
             "profile": raw.get("profile", {"checks": {}}),
             "out": raw.get("out", ".plotparity/runs"), "html": raw.get("html", True),
+            "clean_room": raw.get("clean_room", False),
         }
         proj = cls(root, cfg, text, lib, config_path)
         cases = lib.cases()
@@ -225,6 +228,10 @@ class Project:
     @property
     def adapter_name(self) -> str:
         return self.library.adapter_name
+
+    @property
+    def clean_room(self) -> bool:
+        return bool(self.cfg.get("clean_room", False))
 
     @property
     def runs_dir(self) -> Path:

@@ -64,6 +64,8 @@ def to_markdown(report: dict, show_findings: bool = True) -> str:
     head = (f"PARITY: {report['status'].upper()}  ({n['pass']}/{len(cases)} pass, {n['fail']} fail, "
             f"{n['unmeasured']} unmeasured, {n['infrastructure_error']} infrastructure error)")
     lines = [head]
+    if report.get("clean_room"):
+        lines.append("CLEAN-ROOM: do not inspect the R package's source code; use docs, ggplot_build(), and rendered outputs only.")
     if report.get("previous_harness_changed"):
         lines.append(f"NOTE: the harness changed since the previous report ({', '.join(report['previous_harness_changed'])}); "
                      "differences below may come from the judge, not the port.")

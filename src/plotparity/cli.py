@@ -310,6 +310,79 @@ def cmd_new_case(a) -> int:
     return 0
 
 
+def cmd_calibrate(a) -> int:
+    """Re-evaluate a run's stored observations with zero tolerances to report clean max deltas per check."""
+    from . import adapters
+    from .compare import evaluate_case, load_profile
+    from .project import Library
+
+    cfg = _config_path(a)
+    base = cfg.parent if cfg else Path.cwd()
+    run_target = Path(a.run).resolve() if a.run else _latest(base / ".plotparity" / "runs")
+    if run_target is None:
+        raise UsageError("no run found; pass a run directory or report.json (or run `plotparity run` first)")
+    rf = run_target if run_target.suffix == ".json" else run_target / "report.json"
+    if not rf.exists():
+        raise UsageError(f"{rf} not found")
+    run_dir = rf.parent
+    rep = json.loads(rf.read_text())
+    lib = Library.load(Path(rep["cases_root"])) if rep.get("cases_root") else _project(a).library
+    adapter = adapters.load(lib.adapter_name)
+    cases = lib.cases()
+    r = lib.render
+    canvas_pt = (r["width_px"] * 72.0 / r["dpi"], r["height_px"] * 72.0 / r["dpi"])
+    pkg = rep.get("package") or "port"
+
+    base_profile = rep.get("profile") or load_profile(adapter, {})
+    zero_profile = {}
+    for name, entry in base_profile.items():
+        z = dict(entry)
+        for nk in ("tol", "rel_tol", "alpha_tol"):
+            if nk in z:
+                z[nk] = 0.0
+        zero_profile[name] = z
+
+    stats: dict[str, dict] = {}
+    n_cases = 0
+    for c_res in rep.get("cases", []):
+        cid = c_res["case"]
+        case = cases.get(cid)
+        if case is None or not case.measurable:
+            continue
+        ref_p = lib.references_dir / cid / "observations.json"
+        cand_p = run_dir / "render" / cid / "observations.json"
+        if not (ref_p.exists() and cand_p.exists()):
+            continue
+        n_cases += 1
+        ref = {"observations": json.loads(ref_p.read_text()), "png": c_res.get("reference_png")}
+        cand = {"observations": json.loads(cand_p.read_text()), "png": c_res.get("candidate_png")}
+        res = evaluate_case(case, adapter, zero_profile, [], ref, cand, package=pkg, canvas_pt=canvas_pt)
+        for f in res["findings"]:
+            d = f.get("delta")
+            if not isinstance(d, (int, float)) or isinstance(d, bool):
+                continue
+            ad = abs(float(d))
+            sub = f["component"].split("/")[-1] if "/" in f["component"] else ""
+            key = f"{f['check']}:{sub}" if sub and not sub.startswith(("run[", "script[", "line[")) else f["check"]
+            st = stats.setdefault(key, {"check": f["check"], "n": 0, "max": 0.0, "worst": ""})
+            st["n"] += 1
+            if ad >= st["max"]:
+                st["max"] = ad
+                st["worst"] = cid
+
+    print(f"CALIBRATION SUMMARY ({n_cases} cases, adapter={adapter.NAME}, run={run_dir.name})")
+    if not stats:
+        print("  no numeric deltas observed (every numeric check was exact 0)")
+        return 0
+    print(f"  {'check':<30} {'n':>5} {'max delta':>10} {'current tol':>14}  worst case")
+    for key in sorted(stats):
+        st = stats[key]
+        e = base_profile.get(st["check"], {})
+        tols = ", ".join(f"{k}={e[k]}" for k in ("tol", "rel_tol", "alpha_tol") if k in e) or "—"
+        print(f"  {key:<30} {st['n']:>5} {st['max']:>10.3f} {tols:>14}  {st['worst']}")
+    return 0
+
+
 def cmd_init(a) -> int:
     cfg = Path.cwd() / "parity.toml"
     if cfg.exists():
@@ -321,7 +394,8 @@ def cmd_init(a) -> int:
         lines.append(f'from = "{a.from_}"')
     if a.package:
         lines.append(f'package = "{a.package}"')
-    lines += ["# requirements = []      # extra packages for the environment the package is tested in",
+    lines += ["# clean_room = true      # set for MIT/BSD ports of GPL R packages (reminds agents not to read R source)",
+              "# requirements = []      # extra packages for the environment the package is tested in",
               "# known_good = \"\"        # a version known to match R (enables `validate` checks and `selftest`)",
               "", "# [splits]               # optional: name groups of cases (globs over folder/id)",
               '# dev = ["geom_*/*"]', '# holdout = ["markup/*"]', ""]
@@ -412,6 +486,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--package", help="import name of the package (for drawing ownership summary)")
     p.add_argument("--config", metavar="FILE", help="a parity.toml to use (default: ./parity.toml if present)")
     p.set_defaults(fn=cmd_inspect)
+
+    p = sub.add_parser("calibrate", help="summarize max numeric deltas across a run's stored observations (for setting tolerances)")
+    p.add_argument("run", nargs="?", metavar="RUN", help="run directory or report.json (default: latest run)")
+    p.add_argument("--config", metavar="FILE", help="a parity.toml to use (default: ./parity.toml if present)")
+    p.set_defaults(fn=cmd_calibrate)
 
     p = sub.add_parser("selftest", help="check the checker: re-run the mutation suite against known_good")
     _common(p)
