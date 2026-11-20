@@ -32,7 +32,7 @@ calibration = "pt; max deviation of stream x-span, top/bottom envelopes, and thi
 severity = "gating"
 tier = "layout"
 tol = 3.0
-calibration = "pt; adjacent stream contiguity (gap/overlap), total stacked thickness conservation, and vertical sorting order"
+calibration = "pt; adjacent stream contiguity (<=3pt), mean (<=8pt) & max (<=15pt) stacked thickness conservation, and vertical sorting order"
 
 [checks.stream_style]
 severity = "gating"
@@ -46,7 +46,7 @@ calibration = "CIEDE2000 for fill/outline colours; alpha absolute; outline linew
 severity = "gating"
 tier = "layout"
 tol = 18.0
-calibration = "pt; label sits inside its corresponding stream polygon and near R's widest-cross-section anchor"
+calibration = "pt; label sits vertically centered inside its corresponding stream polygon near R's anchor or at an equally wide (>=72% peak) cross-section"
 
 [checks.stream_label_style]
 severity = "gating"

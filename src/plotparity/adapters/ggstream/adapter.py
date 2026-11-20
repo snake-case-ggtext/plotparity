@@ -224,6 +224,8 @@ def components(engine: str, obs: dict[str, Any], expect: dict[str, Any],
             best_rank = None
             best_dist = float("inf")
             thickness_ratio = None
+            v_center_frac = None
+            v_center_offset_pt = None
             for s in stream_comps:
                 if not (s["u0"] - margin_u <= lu <= s["u1"] + margin_u):
                     continue
@@ -240,9 +242,17 @@ def components(engine: str, obs: dict[str, Any], expect: dict[str, Any],
                         eps = 0.005 * max(s["u1"] - s["u0"], 1e-9)
                         st_u = np.linspace(s["u0"] + eps, s["u1"] - eps, N_STATIONS)
                         sb, st_top = _stream_envelope_at(s, st_u)
-                        max_h = float(np.nanmax(st_top - sb)) if np.isfinite(st_top - sb).any() else 0.0
-                        cur_h = float(vt[0] - vb[0])
+                        hs = st_top - sb
+                        # Exclude outermost boundary-horn stations (first/last 2 of 21) so sharp
+                        # edge flares don't skew interior cross-section thickness ratios.
+                        hs_int = hs[2:-2] if len(hs) > 4 else hs
+                        max_h = float(np.nanmax(hs_int)) if np.isfinite(hs_int).any() else (
+                            float(np.nanmax(hs)) if np.isfinite(hs).any() else 0.0
+                        )
+                        cur_h = max(float(vt[0] - vb[0]), 0.0)
                         thickness_ratio = (cur_h / max_h) if max_h > 1e-9 else 1.0
+                        v_center_frac = dist / max(cur_h, 1e-9)
+                        v_center_offset_pt = dist * float(pt_v)
 
             rec = {
                 "panel": pi,
@@ -266,6 +276,8 @@ def components(engine: str, obs: dict[str, Any], expect: dict[str, Any],
                 "inside_stream": best_rank is not None,
                 "containing_stream_rank": best_rank,
                 "thickness_ratio": thickness_ratio,
+                "v_center_frac": v_center_frac,
+                "v_center_offset_pt": v_center_offset_pt,
                 "has_streams_in_panel": bool(stream_comps),
             }
             by_text.setdefault(txt, []).append(rec)
@@ -433,11 +445,13 @@ def stream_style(r, c, P, add, expect):
 
 
 def stream_label_position(r, c, P, add, expect):
-    """Verify each stream label sits inside its corresponding stream polygon and near R's anchor."""
+    """Verify each stream label sits vertically centered inside its corresponding stream polygon,
+    either near R's anchor or at an equally wide cross-section on multimodal/flat ribbons."""
     if r["kind"] != "label":
         return False
     tol, ku, kv = P["tol"], r["pt_u"], r["pt_v"]
 
+    same_stream = False
     if r.get("inside_stream") and c.get("has_streams_in_panel"):
         if not c.get("inside_stream"):
             add("stream_label_position", True, False,
@@ -450,15 +464,35 @@ def stream_label_position(r, c, P, add, expect):
                 f"Label {c['text']!r} sits inside stream #{c['containing_stream_rank'] + 1}, "
                 f"expected stream #{r['containing_stream_rank'] + 1}.",
                 sub="wrong_stream")
+        else:
+            same_stream = True
+            vcf = c.get("v_center_frac")
+            vco = c.get("v_center_offset_pt")
+            if vcf is not None and vco is not None and vcf > 0.35 and vco > 3.0:
+                add("stream_label_position", "centered", round(float(vcf), 3),
+                    f"Label {c['text']!r} is vertically off-center inside its stream ({vco:.1f}pt, {vcf:.0%} of thickness).",
+                    delta=round(float(vco), 2), sub="vertical_center")
 
     du = abs(c["u"] - r["u"]) * ku
     dv = abs(c["v"] - r["v"]) * kv
     dist = math.hypot(du, dv)
     if exceeds(dist, tol, "stream_label_position"):
-        add("stream_label_position", [round(r["u"], 3), round(r["v"], 3)],
-            [round(c["u"], 3), round(c["v"], 3)],
-            f"Label {c['text']!r} is {dist:.1f}pt off R's anchor (Δu={du:.1f}pt, Δv={dv:.1f}pt).",
-            delta=round(dist, 2), sub="offset")
+        # On flat or bimodal ribbons, two x-positions can have nearly equal inscribed circles;
+        # accept an alternate placement only if it sits inside the same stream at a genuinely wide section.
+        r_tr = r.get("thickness_ratio")
+        c_tr = c.get("thickness_ratio")
+        wide_alternate = (
+            same_stream
+            and r_tr is not None
+            and c_tr is not None
+            and c_tr >= 0.72
+            and c_tr >= 0.78 * r_tr
+        )
+        if not wide_alternate:
+            add("stream_label_position", [round(r["u"], 3), round(r["v"], 3)],
+                [round(c["u"], 3), round(c["v"], 3)],
+                f"Label {c['text']!r} is {dist:.1f}pt off R's anchor (Δu={du:.1f}pt, Δv={dv:.1f}pt).",
+                delta=round(dist, 2), sub="offset")
 
 
 def stream_label_style(r, c, P, add, expect):
@@ -577,13 +611,20 @@ def stream_stacking(rc, cc, pairs, P, add, expect):
             c_valid |= m
         both_v = r_valid & c_valid
         if both_v.any():
-            # Allow slightly wider tolerance on total stacked thickness than contiguity
-            # (smoothing differences across K streams can accumulate modestly; cap at max(tol * 3, 10pt))
-            tot_tol = max(tol * 3.5, 10.0)
+            # Enforce tight mean conservation across all 21 stations (<= 8pt) while allowing
+            # modest worst-case accumulation across K stacked streams at sharp boundary flares (<= 15pt).
+            mean_tol = max(tol * 2.5, 8.0)
+            max_tol = max(tol * 5.0, 15.0)
             dev_tot = np.abs(c_tot[both_v] - r_tot[both_v]) * kv
+            mean_dt = float(np.mean(dev_tot))
+            if exceeds(mean_dt, mean_tol, "stream_stacking"):
+                add("stream_stacking", round(float(np.mean(r_tot[both_v])), 3),
+                    round(float(np.mean(c_tot[both_v])), 3),
+                    f"Panel {pi}: mean total stacked thickness deviates by {mean_dt:.1f}pt across span.",
+                    delta=round(mean_dt, 2), sub=f"p{pi}_total_mean")
             kt = int(np.argmax(dev_tot))
             dt = float(dev_tot[kt])
-            if exceeds(dt, tot_tol, "stream_stacking"):
+            if exceeds(dt, max_tol, "stream_stacking"):
                 add("stream_stacking", round(float(r_tot[both_v][kt]), 3), round(float(c_tot[both_v][kt]), 3),
                     f"Panel {pi}: total stacked thickness is up to {dt:.1f}pt off "
                     f"(at u={stations[both_v][kt]:.3g}).",

@@ -244,3 +244,80 @@ def test_catches_missing_stream():
     assert res["status"] == "fail"
     checks = {f["check"] for f in res["findings"]}
     assert "component_count" in checks or "missing_component" in checks
+
+
+def test_catches_label_in_narrow_tail_and_off_center():
+    # Stream A peaks at x=3 (thickness 4.5) and narrows to thickness 1.0 at x=8
+    cand_narrow = _make_obs(is_cand=True)
+    # Move label A to x=8.0, centered vertically inside stream A at x=8.0
+    poly_a = np.asarray(cand_narrow["ggstream"]["panels"][0]["shapes"][0]["pieces"][0]["data"])
+    near8 = poly_a[np.abs(poly_a[:, 0] - 8.0) < 0.2, 1]
+    cand_narrow["ggstream"]["panels"][0]["labels"][0]["x"] = 8.0
+    cand_narrow["ggstream"]["panels"][0]["labels"][0]["y"] = float(0.5 * (near8.min() + near8.max()))
+    res_narrow = _eval(_make_obs(), cand_narrow)
+    assert res_narrow["status"] == "fail"
+    assert any(f["check"] == "stream_label_position" and "offset" in f["fingerprint"] for f in res_narrow["findings"])
+
+    # Move label A vertically near its top border (off-center inside stream A at peak x=3)
+    res_off = _eval(_make_obs(), _make_obs(label_shift_y=1.9, is_cand=True))
+    assert res_off["status"] == "fail"
+    assert any(f["check"] == "stream_label_position" and "vertical_center" in f["fingerprint"] for f in res_off["findings"])
+
+
+def test_accepts_bimodal_alternate_wide_bulge():
+    xs = np.linspace(1.0, 10.0, 61)
+    # Symmetric bimodal stream peaking equally at x=3.0 and x=8.0
+    h = 1.0 + 3.5 * np.exp(-0.5 * ((xs - 3.0) / 1.1) ** 2) + 3.5 * np.exp(-0.5 * ((xs - 8.0) / 1.1) ** 2)
+    yb, yt = -0.5 * h, 0.5 * h
+
+    def _bimodal(lx: float, is_cand: bool = False) -> dict:
+        panel = {
+            "panel_index": 1,
+            "is_flip": False,
+            "x_range": [0.0, 11.0],
+            "y_range": [-5.0, 5.0],
+            "x_labels": [],
+            "y_labels": [],
+            "x_is_discrete": False,
+            "y_is_discrete": False,
+            "bbox_norm_tl": [0.1, 0.1, 0.9, 0.9],
+            "shapes": [{
+                "kind": "polygon",
+                "paint_index": 1,
+                "filled": True,
+                "facecolor_hex": "#00ba38",
+                "face_alpha": 1.0,
+                "edgecolor_hex": "none",
+                "edge_alpha": 0.0,
+                "linewidth_pt": 0.0,
+                "pieces": [_ribbon_poly(xs, yb, yt)],
+            }],
+            "labels": [{
+                "text": "Drama",
+                "x": lx,
+                "y": 0.0,
+                "x_norm": 0.5,
+                "y_norm": 0.5,
+                "color_hex": "#000000",
+                "alpha": 1.0,
+                "fontsize_pt": 11.0,
+                "paint_index": 10,
+                "has_box": False,
+            }],
+        }
+        obs: dict = {
+            "ggstream": {
+                "panels": [panel],
+                "extracted_classes": ["matplotlib.collections.PolyCollection", "matplotlib.text.Text"],
+            }
+        }
+        if is_cand:
+            obs["owners"] = [
+                {"class": "matplotlib.collections.PolyCollection", "module": "matplotlib.collections", "parent": "axes"},
+            ]
+            obs["events"] = [{"kind": "path", "paint_index": 1, "owner": 0}]
+            obs["port_ink_px"] = 200
+        return obs
+
+    res = _eval(_bimodal(3.0), _bimodal(8.0, is_cand=True))
+    assert res["status"] == "pass", f"Unexpected bimodal failure: {res['findings']}"
