@@ -354,26 +354,29 @@ def label_no_overlap(rc, cc, pairs, P, add, expect):
             delta=len(c_bad) - len(r_bad))
 
 
-def _count_point_overlaps(comps: list[dict]) -> int:
-    hits = 0
+def _count_point_overlaps(comps: list[dict], clearance_pt: float = 1.0) -> list[str]:
+    bad: list[str] = []
     for c in comps:
         W, H = tuple(c["canvas_pt"])
         bb = c["bbox_norm_tl"]
         for pt in c.get("panel_points") or []:
-            # Shrink check slightly so grazing the edge isn't a false failure
-            if _point_to_bbox_pt(pt["x_norm"], pt["y_norm"], bb, (W, H)) == 0.0:
-                hits += 1
-    return hits
+            rad = 0.5 * float(pt.get("size_pt", 3.5))
+            if _point_to_bbox_pt(pt["x_norm"], pt["y_norm"], bb, (W, H)) < rad + clearance_pt:
+                bad.append(c["text"])
+    return bad
 
 
 def label_no_point_overlap(rc, cc, pairs, P, add, expect):
     if not any(c.get("panel_points") for c in cc):
         return False
-    r_hits = _count_point_overlaps(rc)
-    c_hits = _count_point_overlaps(cc)
-    if c_hits > r_hits + int(P.get("tol", 0)):
-        add("label_no_point_overlap", r_hits, c_hits,
-            f"{c_hits} label-point overlap(s), expected <= {r_hits}.", delta=c_hits - r_hits)
+    clearance = float(P.get("min", 1.0))
+    r_bad = _count_point_overlaps(rc, clearance)
+    c_bad = _count_point_overlaps(cc, clearance)
+    if len(c_bad) > len(r_bad) + int(P.get("tol", 0)):
+        sample = list(dict.fromkeys(c_bad))[:4]
+        add("label_no_point_overlap", len(r_bad), len(c_bad),
+            f"{len(c_bad)} label-point overlap(s) within dot radius+{clearance:g}pt (e.g. {sample}), expected <= {len(r_bad)}.",
+            delta=len(c_bad) - len(r_bad))
 
 
 def segment_count(rc, cc, pairs, P, add, expect):

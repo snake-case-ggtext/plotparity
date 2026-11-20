@@ -133,6 +133,35 @@ def test_ggrepel_invariants_catch_label_overlap_and_outside_panel():
     assert "label_no_overlap" in checks and "label_inside_panel" in checks
 
 
+def test_ggrepel_point_overlap_respects_dot_radius_and_clearance():
+    """Labels sitting within a dot's radius + 1pt clearance must fail even when the dot center is outside the bbox."""
+    p_bb = [0.1, 0.1, 0.9, 0.9]
+    # 4pt dot at (320, 240) -> radius 2pt, plus 1pt clearance = 3pt required from center
+    panel = {"panel_index": 1, "bbox_norm_tl": p_bb, "points": [{"x_norm": 0.5, "y_norm": 0.5, "size_pt": 4.0}]}
+    # R label is 5pt above dot center (y1 = 235pt / 480) -> clear
+    r_lbl = {"panel": 1, "idx": "1", "text": "Theta", "x_norm": 0.48, "y_norm": 0.48,
+             "bbox_norm_tl": [0.47, 225 / 480, 0.53, 235 / 480], "color_hex": "#000000", "alpha": 1.0,
+             "fontsize_pt": 11.0, "fontweight": "normal", "fontstyle": "normal", "angle_deg": 0.0,
+             "rect": None, "segment": None}
+    ref_obs = {"ggrepel": {"panels": [panel], "labels": [r_lbl]}}
+    # Candidate label is only 2.2pt above dot center (y1 = 237.8 / 480) -> center outside bbox, but collides with dot!
+    cand_obs = {
+        "ggrepel": {"panels": [panel]},
+        "owners": [{"class": "plotnine_ggrepel._artist._RepelArtist", "module": "plotnine_ggrepel._artist", "parent": "axes"}],
+        "events": [
+            {"kind": "text", "paint_index": 1, "owner": 0, "text": "Theta", "x_norm": 0.48, "y_norm": 237.8 / 480,
+             "bbox_norm_tl": [0.47, 227.8 / 480, 0.53, 237.8 / 480], "color_hex": "#000000", "alpha": 1.0,
+             "fontsize_pt": 11.0, "fontweight": "normal", "fontstyle": "normal", "angle_deg": 0.0},
+        ],
+        "port_ink_px": 50,
+    }
+    case = SimpleNamespace(id="repel_pt_touch", relpath="repel_pt_touch", expect={}, measurable=True, why="")
+    res = evaluate_case(case, RP, load_profile(RP, {}), [], {"observations": ref_obs}, {"observations": cand_obs},
+                        package="plotnine_ggrepel")
+    fails = [f for f in res["findings"] if f["status"] == "fail"]
+    assert any(f["check"] == "label_no_point_overlap" and "Theta" in f["message"] for f in fails)
+
+
 def test_ggbeeswarm_adapter_catches_overlap_and_shifted_values():
     def obs_with(xs, ys):
         pts = [{"x": x, "y": y, "x_norm": 0.2 + x * 0.2, "y_norm": 0.8 - y * 0.2,

@@ -29,7 +29,8 @@ calibration = "overlapping label pairs <= R"
 severity = "gating"
 tier = "layout"
 tol = 0
-calibration = "labels covering panel anchor points <= R"
+min = 1.0
+calibration = "labels within point radius + min pt clearance <= R"
 
 [checks.label_inside_panel]
 severity = "gating"
