@@ -323,4 +323,4 @@ def test_view_build_loop_labels_and_notes(tmp_path):
     data = json.loads(m.group(1))
     assert [r["label"] for r in data["runs"]] == ["Round 0", "Round 1", "Holdout 1"]
     assert [r["note"] for r in data["runs"]] == ["baseline", "fixed spacing", "unseen holdout evaluation"]
-    assert "runScrub" in html
+    assert "stepRun(" in html and "runScrub" not in html and "scrubber" not in html
