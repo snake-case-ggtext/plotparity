@@ -115,6 +115,16 @@ details.code summary{cursor:pointer;font-size:12.5px;color:var(--ink-2)}
 input[type=range]{width:100%;accent-color:var(--accent);margin-top:8px}
 .empty-img{display:flex;align-items:center;justify-content:center;aspect-ratio:4/3;color:var(--ink-3);font-size:13px;background:var(--surface-2)}
 
+/* round scrubber */
+.scrubber{margin-top:12px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:6px}
+.scrub-row{display:flex;align-items:center;gap:10px}
+.scrub-row input[type=range]{flex:1;margin:0}
+.scrub-meta{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12.5px}
+.scrub-note{color:var(--ink-2);font-size:12.5px}
+.scrub-dots{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.scrub-dot{border:1px solid var(--line-2);background:var(--surface);border-radius:999px;padding:2px 8px 2px 6px;font-size:11.5px;display:inline-flex;align-items:center;gap:5px;color:var(--ink-2)}
+.scrub-dot[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--ink);font-weight:600}
+
 /* findings */
 .fsec{margin-top:18px}
 .fsec h2{font-size:15px;margin:0 0 8px;display:flex;gap:10px;align-items:baseline}
@@ -176,7 +186,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line-2);border
       <div class="chips" id="fchips"></div>
     </div>
     <div class="caselist" id="list"></div>
-    <div class="keys"><kbd>j</kbd><kbd>k</kbd> case · <kbd>[</kbd><kbd>]</kbd> finding · <kbd>s</kbd> side · <kbd>b</kbd> blink · <kbd>w</kbd> swipe · <kbd>d</kbd> diff · <kbd>space</kbd> hold to swap · <kbd>z</kbd> zoom · <kbd>o</kbd> outlines · <kbd>a</kbd> finding OK · <kbd>A</kbd> case OK · <kbd>esc</kbd> clear</div>
+    <div class="keys"><kbd>j</kbd><kbd>k</kbd> case · <kbd>←</kbd><kbd>→</kbd> round · <kbd>[</kbd><kbd>]</kbd> finding · <kbd>s</kbd> side · <kbd>b</kbd> blink · <kbd>w</kbd> swipe · <kbd>d</kbd> diff · <kbd>space</kbd> hold to swap · <kbd>z</kbd> zoom · <kbd>o</kbd> outlines · <kbd>a</kbd> finding OK · <kbd>A</kbd> case OK · <kbd>esc</kbd> clear</div>
   </aside>
   <main><div class="inner" id="main"></div></main>
 </div>
@@ -242,8 +252,10 @@ function geomFor(c, comp){
 /* ---------- header ---------- */
 function renderHeader(){
   if (S.overview) {
-    const tabs = `<div class="runtabs">${[`<button data-ov="1" aria-pressed="true"><b>Overview</b><span class="faint">${D.runs.length} runs</span></button>`].concat(D.runs.map((x,i)=>`<button data-run="${i}" aria-pressed="false"><b>${esc(x.label)}</b><span class="faint">${counts(x).pass}/${x.cases.length} match</span></button>`)).join("")}</div>`;
-    $("#hdr").innerHTML = `<div class="hd-title"><div class="verdict">${D.runs.length} runs</div><div class="sub">${D.runs.map(x=>esc(x.label)).join(" · ")}</div></div>${tabs}<button class="iconbtn" id="theme" title="Toggle theme">◐</button>`;
+    const pkgs = [...new Set(D.runs.map(x=>x.package).filter(Boolean))];
+    const sub = pkgs.length === 1 ? `<code>${esc(pkgs[0])}</code> · ${D.runs[0].label} → ${D.runs[D.runs.length-1].label}` : D.runs.map(x=>esc(x.label)).join(" · ");
+    const tabs = `<div class="runtabs">${[`<button data-ov="1" aria-pressed="true"><b>Overview</b><span class="faint">${D.runs.length} runs</span></button>`].concat(D.runs.map((x,i)=>`<button data-run="${i}" aria-pressed="false" title="${esc(x.note||x.label)}"><b>${esc(x.label)}</b><span class="faint">${counts(x).pass}/${x.cases.length} match</span></button>`)).join("")}</div>`;
+    $("#hdr").innerHTML = `<div class="hd-title"><div class="verdict">${D.runs.length} runs</div><div class="sub">${sub}</div></div>${tabs}<button class="iconbtn" id="theme" title="Toggle theme">◐</button>`;
     return;
   }
   const r = run(), k = counts(r), n = r.cases.length, cand = r.candidate || {};
@@ -444,18 +456,75 @@ function findingsHtml(c){
   if (c.geom && c.geom._error) h += `<div class="faint" style="font-size:12px;margin-top:8px">(Couldn't recover component outlines: ${esc(c.geom._error)})</div>`;
   return h + `</div>`;
 }
+function caseRuns(id){ return D.runs.map((r,i)=>[r,i]).filter(([r])=>caseOf(r,id)).map(([,i])=>i); }
+function scrubberHtml(id){
+  const ridxs = caseRuns(id);
+  if (ridxs.length < 2) return "";
+  const pos = Math.max(0, ridxs.indexOf(S.run));
+  const r = run(), c = caseOf(r, id);
+  const nf = c ? c.findings.filter(f=>f.status==="fail").length : 0;
+  const dots = ridxs.map(ri => {
+    const rr = D.runs[ri], cc = caseOf(rr, id);
+    return `<button class="scrub-dot" data-scrub-run="${ri}" aria-pressed="${ri===S.run}" title="${esc(rr.note||rr.label)}"><i class="dot st-${caseOk(cc,ri)?"okd":caseStatus(cc)}"></i>${esc(rr.label)}</button>`;
+  }).join("");
+  return `<div class="scrubber" id="scrubber">
+    <div class="scrub-meta">
+      <div><b id="scrubTitle">${esc(r.label)}</b> <span class="faint" id="scrubPos">(${pos+1} of ${ridxs.length})</span> · <span id="scrubStatus">${esc(statusLabel(c))}${nf?` (${nf})`:""}</span></div>
+      <div class="scrub-dots" id="scrubDots">${dots}</div>
+    </div>
+    <div class="scrub-row">
+      <button class="iconbtn" data-step-run="-1" id="scrubPrev" ${pos<=0?"disabled":""} title="Previous round (←)">←</button>
+      <input type="range" id="runScrub" min="0" max="${ridxs.length-1}" value="${pos}" step="1" aria-label="Scrub rounds">
+      <button class="iconbtn" data-step-run="1" id="scrubNext" ${pos>=ridxs.length-1?"disabled":""} title="Next round (→)">→</button>
+    </div>
+    <div class="scrub-note" id="scrubNote">${r.note?esc(r.note):""}</div>
+  </div>`;
+}
+function updateCaseForRun(){
+  const r = run(), c = caseOf(r, S.case); if (!c) return renderAll();
+  const ridxs = caseRuns(S.case), pos = Math.max(0, ridxs.indexOf(S.run));
+  const nf = c.findings.filter(f=>f.status==="fail").length;
+  renderHeader(); renderFilters(); renderList();
+  const pills = $("#casePills");
+  if (pills) pills.innerHTML = `<span class="pill p-${c.status}"><i class="dot st-${c.status}"></i>${esc(statusLabel(c))}</span>${c.split?`<span class="pill p-split">${esc(c.split)}</span>`:""}${c.status!=="pass"?`<button class="okbtn" data-okcase="1" aria-pressed="${caseOk(c)}" title="Mark the whole case OK (A)">${caseOk(c)?"✓ Case marked OK":"Mark case OK"}</button>`:""}`;
+  if ($("#scrubTitle")) $("#scrubTitle").textContent = r.label;
+  if ($("#scrubPos")) $("#scrubPos").textContent = `(${pos+1} of ${ridxs.length})`;
+  if ($("#scrubStatus")) $("#scrubStatus").textContent = `${statusLabel(c)}${nf?` (${nf})`:""}`;
+  if ($("#scrubNote")) $("#scrubNote").textContent = r.note || "";
+  if ($("#runScrub")) $("#runScrub").value = String(pos);
+  if ($("#scrubPrev")) $("#scrubPrev").disabled = pos <= 0;
+  if ($("#scrubNext")) $("#scrubNext").disabled = pos >= ridxs.length - 1;
+  document.querySelectorAll("[data-scrub-run]").forEach(b => b.setAttribute("aria-pressed", +b.dataset.scrubRun === S.run));
+  $("#viewer").innerHTML = viewerHtml(c);
+  $("#findings").innerHTML = findingsHtml(c);
+  wireViewer();
+}
+function stepRun(d){
+  if (S.overview || !S.case) return;
+  const ridxs = caseRuns(S.case); if (ridxs.length < 2) return;
+  const pos = ridxs.indexOf(S.run);
+  const next = ridxs[Math.max(0, Math.min(ridxs.length - 1, pos + d))];
+  if (next === S.run) return;
+  S.run = next; S.finding = null; writeHash(); updateCaseForRun();
+}
 function renderCase(){
   const r = run(), c = caseOf(r, S.case); if (!c) { $("#main").innerHTML = `<div class="faint">Select a case.</div>`; return; }
   const meta = D.cases[c.case] || {}, port = r.package;
   const py = meta.python ? (meta.python[port] ?? meta.python[""]) : null;
   const vis = visibleCases(), i = vis.findIndex(x=>x.case===c.case);
   $("#main").innerHTML = `<div class="chead"><div><div class="path">${esc(c.relpath||c.case)}</div><h1>${esc(c.case)}</h1>
-      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="pill p-${c.status}"><i class="dot st-${c.status}"></i>${esc(statusLabel(c))}</span>${c.split?`<span class="pill p-split">${esc(c.split)}</span>`:""}${c.status!=="pass"?`<button class="okbtn" data-okcase="1" aria-pressed="${caseOk(c)}" title="Mark the whole case OK (A)">${caseOk(c)?"✓ Case marked OK":"Mark case OK"}</button>`:""}</div>
+      <div id="casePills" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="pill p-${c.status}"><i class="dot st-${c.status}"></i>${esc(statusLabel(c))}</span>${c.split?`<span class="pill p-split">${esc(c.split)}</span>`:""}${c.status!=="pass"?`<button class="okbtn" data-okcase="1" aria-pressed="${caseOk(c)}" title="Mark the whole case OK (A)">${caseOk(c)?"✓ Case marked OK":"Mark case OK"}</button>`:""}</div>
       ${meta.why?`<p class="why">${esc(meta.why)}</p>`:""}</div>
       <div class="navbtns"><button class="iconbtn" data-step="-1" ${i<=0?"disabled":""}>← <kbd>k</kbd></button><button class="iconbtn" data-step="1" ${i>=vis.length-1?"disabled":""}><kbd>j</kbd> →</button></div></div>
     ${meta.r?`<details class="code"><summary>Code</summary><div class="codegrid"><div><div class="lab">R</div><pre>${esc(meta.r)}</pre></div><div><div class="lab">Python · ${esc(port)}</div><pre>${py?esc(py):'<span class="faint">none</span>'}</pre></div></div></details>`:""}
+    ${scrubberHtml(c.case)}
     <div class="viewer" id="viewer">${viewerHtml(c)}</div>
     <div id="findings">${findingsHtml(c)}</div>`;
+  const sc = $("#runScrub");
+  if (sc) sc.addEventListener("input", () => {
+    const ridxs = caseRuns(S.case), target = ridxs[+sc.value];
+    if (target != null && target !== S.run){ S.run = target; S.finding = null; writeHash(); updateCaseForRun(); }
+  });
   wireViewer();
 }
 function refreshOk(){ saveOk(); const y = $("#main").scrollTop ?? 0; renderList(); renderHeader(); $("#findings").innerHTML = findingsHtml(caseOf(run(), S.case));
@@ -523,11 +592,13 @@ document.addEventListener("click", e => {
   const sb = e.target.closest("[data-setting]"); if (sb) { e.stopPropagation(); hideTip(); openSettings(sb.dataset.setting); return; }
   if (e.target.closest("#settingsClose")) { closeSettings(true); return; }
   if (e.target.closest("#settings")) return;
-  const t = e.target.closest("[data-case],[data-run],[data-ov],[data-filter],[data-mode],[data-step],[data-f],[data-cell],#theme"); if (!t) return;
+  const t = e.target.closest("[data-case],[data-run],[data-scrub-run],[data-step-run],[data-ov],[data-filter],[data-mode],[data-step],[data-f],[data-cell],#theme"); if (!t) return;
   if (t.id==="theme"){ const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"); document.documentElement.dataset.theme = cur==="dark"?"light":"dark"; try{localStorage.setItem("pp-theme",document.documentElement.dataset.theme);}catch(_){} return; }
   if (t.dataset.case) return selectCase(t.dataset.case);
   if (t.dataset.cell){ const [ri,id] = t.dataset.cell.split("|"); return selectCase(id, +ri); }
   if (t.dataset.ov){ S.overview = true; writeHash(); return renderAll(); }
+  if (t.dataset.scrubRun!=null){ S.run = +t.dataset.scrubRun; S.finding = null; writeHash(); return updateCaseForRun(); }
+  if (t.dataset.stepRun!=null) return stepRun(+t.dataset.stepRun);
   if (t.dataset.run){ S.run = +t.dataset.run; S.overview = false; if (!caseOf(run(), S.case)) S.case = run().cases[0]?.case; S.finding=null; writeHash(); return renderAll(); }
   if (t.dataset.filter){ S.filter = t.dataset.filter; renderFilters(); renderList(); return; }
   if (t.dataset.mode){ S.mode = t.dataset.mode; writeHash(); return rerenderViewer(); }
@@ -541,12 +612,14 @@ function stepFinding(d){ const c = caseOf(run(), S.case); if (!c || !c.findings.
   S.finding = S.finding==null ? (d>0?0:n-1) : (S.finding + d + n) % n; writeHash(); rerenderViewer();
   document.querySelectorAll(".f").forEach(x=>x.classList.toggle("sel", +x.dataset.f===S.finding)); document.querySelector(".f.sel")?.scrollIntoView({block:"nearest"}); }
 document.addEventListener("keydown", e => {
-  if (e.target.matches("input,textarea")) { if (e.key==="Escape") e.target.blur(); return; }
+  if (e.target.matches("input:not([type=range]),textarea")) { if (e.key==="Escape") e.target.blur(); return; }
   if (S.settings) { if (e.key==="Escape") closeSettings(true); return; }
   const k = e.key;
   if (k==="/"){ e.preventDefault(); $("#q").focus(); return; }
   if (k==="j"||k==="ArrowDown") { e.preventDefault(); step(1); }
   else if (k==="k"||k==="ArrowUp") { e.preventDefault(); step(-1); }
+  else if (k==="ArrowLeft"||k==="h") { e.preventDefault(); stepRun(-1); }
+  else if (k==="ArrowRight"||k==="l") { e.preventDefault(); stepRun(1); }
   else if (k==="]") stepFinding(1); else if (k==="[") stepFinding(-1);
   else if ({s:"side",b:"blink",w:"swipe",d:"diff"}[k]) { S.mode = {s:"side",b:"blink",w:"swipe",d:"diff"}[k]; writeHash(); rerenderViewer(); }
   else if (k==="o") { S.outlines = !S.outlines; rerenderViewer(); }

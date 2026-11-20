@@ -95,7 +95,34 @@ def _geometry(library, case, ref_obs_path: Path, cand_obs_path: Path) -> dict[st
     return out
 
 
-def _label(rep: dict, project) -> str:
+def _loop_notes(run_dir: Path) -> dict[str, str]:
+    """If `run_dir` lives inside a `plotparity loop` folder, map run dir names (iter_000, holdout_01) to notes."""
+    log = run_dir.parent / "loop.jsonl"
+    if not log.exists():
+        return {}
+    notes: dict[str, str] = {}
+    for line in log.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if "iter" in row:
+            notes[f"iter_{int(row['iter']):03d}"] = str(row.get("note") or "")
+        elif "holdout" in row:
+            notes[f"holdout_{int(row['holdout']):02d}"] = "unseen holdout evaluation"
+    return notes
+
+
+def _label(rep: dict, project, run_dir: Path | None = None) -> str:
+    if run_dir is not None:
+        m = re.match(r"^iter_(\d+)$", run_dir.name)
+        if m:
+            return f"Round {int(m.group(1))}"
+        m = re.match(r"^holdout_(\d+)$", run_dir.name)
+        if m:
+            return f"Holdout {int(m.group(1))}"
     cand = rep.get("candidate", {})
     commit = (cand.get("commit") or "")[:7]
     pkg = rep.get("package") or (project.package if project else "?")
@@ -193,13 +220,22 @@ def build(report_files: list[Path], out: Path, public: bool = False) -> Path:
                           "render_hash": _pixel_hash(c.get("candidate_png")),
                           "ref_img": ref_key if images.get(ref_key) else "",
                           "cand_img": cand_key if images.get(cand_key) else "", "geom": geom})
-        runs.append({"id": run_id, "label": _label(rep, project), "created": rep.get("created"),
+        notes = _loop_notes(run_dir)
+        runs.append({"id": run_id, "label": _label(rep, project, run_dir), "run_name": run_dir.name,
+                     "note": notes.get(run_dir.name, ""), "created": rep.get("created"),
                      "status": rep.get("status"), "selection": rep.get("selection"),
                      "package": rep.get("package") or (project.package if project else ""),
                      "candidate": rep.get("candidate", {}),
                      "known_unused": rep.get("known_differences_unused", []), "cases": cases,
                      "settings": _settings(rep, project, library),
                      "report_path": str(rf)})
+    # Disambiguate identical labels (e.g. comparing two non-loop runs of the same commit)
+    label_counts: dict[str, int] = {}
+    for r in runs:
+        label_counts[r["label"]] = label_counts.get(r["label"], 0) + 1
+    for r in runs:
+        if label_counts[r["label"]] > 1 and r.get("run_name"):
+            r["label"] = f"{r['label']} ({r['run_name']})"
     data = {"runs": runs, "cases": case_meta, "sizes": sizes}
     html = TEMPLATE.read_text()
     blob = json.dumps(data, default=str)

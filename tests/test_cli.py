@@ -300,3 +300,27 @@ def test_clean_room_flag_and_calibrate_command(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "CALIBRATION SUMMARY (1 cases, adapter=ggtext" in out
     assert "font_size" in out or "centroid" in out
+
+
+def test_view_build_loop_labels_and_notes(tmp_path):
+    import re
+    from plotparity.view.build import build
+
+    loop_dir = tmp_path / "loop"
+    it0, it1, ho1 = loop_dir / "iter_000", loop_dir / "iter_001", loop_dir / "holdout_01"
+    for d in (it0, it1, ho1):
+        d.mkdir(parents=True)
+        (d / "report.json").write_text(json.dumps({
+            "status": "pass", "package": "pkg", "project": str(tmp_path), "cases": []
+        }))
+    (loop_dir / "loop.jsonl").write_text(
+        json.dumps({"iter": 0, "note": "baseline"}) + "\n"
+        + json.dumps({"iter": 1, "note": "fixed spacing"}) + "\n"
+        + json.dumps({"holdout": 1}) + "\n"
+    )
+    html = build([it0 / "report.json", it1 / "report.json", ho1 / "report.json"], loop_dir / "report.html").read_text()
+    m = re.search(r"const D = (\{.*?\});\nconst IMG =", html)
+    data = json.loads(m.group(1))
+    assert [r["label"] for r in data["runs"]] == ["Round 0", "Round 1", "Holdout 1"]
+    assert [r["note"] for r in data["runs"]] == ["baseline", "fixed spacing", "unseen holdout evaluation"]
+    assert "runScrub" in html
