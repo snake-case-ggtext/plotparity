@@ -1,0 +1,97 @@
+# ggstream adapter profile: stream ribbon envelopes, whole-plot stacking contiguity & ordering,
+# fill/outline styling, and stream label placement & styling.
+
+[checks.component_count]
+severity = "gating"
+tier = "inventory"
+calibration = "exact count of stream ribbons and stream labels per panel"
+
+[checks.missing_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_drawing]
+severity = "gating"
+tier = "inventory"
+
+[checks.extractor_blind]
+severity = "gating"
+tier = "inventory"
+
+[checks.stream_envelope]
+severity = "gating"
+tier = "layout"
+tol = 10.0
+calibration = "pt; max deviation of stream x-span, top/bottom envelopes, and thickness across 21 stations in panel points"
+
+[checks.stream_stacking]
+severity = "gating"
+tier = "layout"
+tol = 3.0
+calibration = "pt; adjacent stream contiguity (gap/overlap), total stacked thickness conservation, and vertical sorting order"
+
+[checks.stream_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+rel_tol = 0.30
+calibration = "CIEDE2000 for fill/outline colours; alpha absolute; outline linewidth relative"
+
+[checks.stream_label_position]
+severity = "gating"
+tier = "layout"
+tol = 18.0
+calibration = "pt; label sits inside its corresponding stream polygon and near R's widest-cross-section anchor"
+
+[checks.stream_label_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 for text/box colours; alpha absolute; fontsize +/-1.5pt"
+
+# generic text and frame checks are superseded by the stream-specific checks above
+[checks.text_content]
+severity = "off"
+tier = "inventory"
+[checks.text_color]
+severity = "off"
+tier = "style"
+[checks.text_alpha]
+severity = "off"
+tier = "style"
+[checks.font_weight]
+severity = "off"
+tier = "style"
+[checks.font_style]
+severity = "off"
+tier = "style"
+[checks.font_size]
+severity = "off"
+tier = "style"
+[checks.text_visible]
+severity = "off"
+tier = "inventory"
+[checks.ink_present]
+severity = "off"
+tier = "inventory"
+[checks.rotation]
+severity = "off"
+tier = "layout"
+[checks.centroid]
+severity = "off"
+tier = "layout"
+[checks.fill_color]
+severity = "off"
+tier = "style"
+[checks.edge_color]
+severity = "off"
+tier = "style"
+[checks.shape_size]
+severity = "off"
+tier = "layout"

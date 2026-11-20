@@ -126,7 +126,7 @@ Not checked yet:
 
 ## Other extensions
 
-Six adapters ship today:
+Nine adapters ship today:
 
 - **ggtext**: rich-text labels and theme elements (`geom_richtext`, `geom_textbox`, `element_markdown`, `element_textbox`).
 - **ggridges**: ridgeline plots (each ridge's shape, density, fill, outline, pieces, and paint order).
@@ -134,14 +134,17 @@ Six adapters ship today:
 - **ggrepel**: force-directed repelled labels (inventory, label-label and dot-radius-aware label-point overlap invariants, panel containment, leader segment connectivity, and text/box style).
 - **ggalluvial**: alluvial and Sankey flow diagrams (stratum geometry, height conservation, spline/curve ribbon trajectories, flow/stratum paint order, and stratum labels across facets and `coord_flip()`).
 - **geomtextpath**: curved text along paths and smooths (per-glyph arc-length placement and tangent rotation, upright auto-flipping, line-gap breaking, curve trajectory, linetype, and curved/straight label boxes).
+- **ggforce**: mark enclosures and callout annotations (`geom_mark_rect`, `geom_mark_circle`, `geom_mark_ellipse`, `geom_mark_hull` — point enclosure, expand padding, area ratio, boundary Hausdorff, callout layout/wrapping/collision avoidance, and connector geometry/style).
+- **treemapify**: squarified/column/row/fixed treemaps (`geom_treemap`, `geom_treemap_text`, `geom_treemap_subgroup*_border`, `geom_treemap_subgroup*_text` — tile area/geometry, zero overlap & canvas conservation, subgroup containment, and fitted/reflowed/grown text).
+- **ggstream**: stacked smooth streamgraphs (`geom_stream`, `geom_stream_label` — mirror/ridge/proportional ribbon envelopes, stacking contiguity & onset/inside-out ordering, and interior stream label placement).
 
 Supporting another extension means writing an adapter (what counts as a component, how to find components on both sides, how to pair them, which checks apply): see [docs/writing-adapters.md](docs/writing-adapters.md).
 
 ## Example
 
-**[See live example reports](https://snake-case-ggtext.github.io/plotparity-examples/)** for five packages, including multi-round clean-room port progressions for `plotnine-ggbeeswarm` and `plotnine-ggrepel`.
+**[See live example reports](https://snake-case-ggtext.github.io/plotparity-examples/)** across nine ggplot2 extensions, including multi-round clean-room port progressions.
 
-[plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) has cases for ggtext, ggridges, ggbeeswarm, and ggrepel, and five packages tested against them:
+[plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) has benchmark cases and tested plotnine ports for all nine extensions:
 
 ```bash
 git clone https://github.com/snake-case-ggtext/plotparity-examples

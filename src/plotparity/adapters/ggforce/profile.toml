@@ -1,0 +1,113 @@
+# ggforce adapter profile: mark enclosures, callout layout/style, and connectors.
+
+[checks.component_count]
+severity = "gating"
+tier = "inventory"
+
+[checks.missing_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_drawing]
+severity = "gating"
+tier = "inventory"
+
+[checks.extractor_blind]
+severity = "gating"
+tier = "inventory"
+
+[checks.callout_text]
+severity = "gating"
+tier = "inventory"
+calibration = "exact word-level title and wrapped description match + callout presence"
+
+[checks.mark_enclosure]
+severity = "gating"
+tier = "layout"
+tol = 18.0
+rel_tol = 0.35
+calibration = "point coverage, expand padding (±6.5pt), area ratio (0.65..1.54), boundary Hausdorff <= max(18pt, 14% diag)"
+
+[checks.mark_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 <= 6.0, alpha abs <= 0.05, linewidth, and corner roundedness"
+
+[checks.callout_layout]
+severity = "gating"
+tier = "layout"
+tol = 3.0
+calibration = "callout <= 3pt outside panel (when R is inside); title above description"
+
+[checks.callout_no_overlap]
+severity = "gating"
+tier = "layout"
+calibration = "overlapping callout pairs <= R"
+
+[checks.callout_no_point_overlap]
+severity = "gating"
+tier = "layout"
+tol = 0
+min = 1.0
+calibration = "callouts within dot radius + 1.0pt clearance <= R"
+
+[checks.callout_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 <= 6.0, alpha abs <= 0.05, fontsize ±1.5pt, weight/style, label box fill"
+
+[checks.connector_connects]
+severity = "gating"
+tier = "layout"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "connector presence, <=6pt to callout, <=16pt to mark enclosure (allowing con.cap), color/alpha/linetype/linewidth"
+
+# generic core checks replaced by ggforce-specific checks above
+[checks.text_content]
+severity = "off"
+tier = "inventory"
+[checks.text_color]
+severity = "off"
+tier = "style"
+[checks.text_alpha]
+severity = "off"
+tier = "style"
+[checks.font_weight]
+severity = "off"
+tier = "style"
+[checks.font_style]
+severity = "off"
+tier = "style"
+[checks.font_size]
+severity = "off"
+tier = "style"
+[checks.text_visible]
+severity = "off"
+tier = "inventory"
+[checks.ink_present]
+severity = "off"
+tier = "inventory"
+[checks.rotation]
+severity = "off"
+tier = "layout"
+[checks.centroid]
+severity = "off"
+tier = "layout"
+[checks.fill_color]
+severity = "off"
+tier = "style"
+[checks.edge_color]
+severity = "off"
+tier = "style"
+[checks.shape_size]
+severity = "off"
+tier = "layout"

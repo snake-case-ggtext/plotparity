@@ -77,13 +77,13 @@ For geom extensions that work on panel points, polygons, lines, segments, or ras
 
 ## Adapters
 
-| | ggtext | ggridges | ggbeeswarm | ggrepel | ggalluvial | geomtextpath |
-| --- | --- | --- | --- | --- | --- | --- |
-| component | rich-text box or theme-element label | a ridge | a `(panel, group)` point swarm | a repelled text/label annotation | a stratum, flow ribbon, or stratum label | a labelled curve (glyphs + polyline + optional box) |
-| R side | gridtext grobs; gtable chrome | `extract_panel_geometry(..., "shapes")` + `ggplot_build` density | `extract_panel_geometry(..., "points")` | forced `textrepeltree`/`labelrepeltree` + panel points | forced panel grobs (`xsplinePoints`, polygons, text/labels) | forced `textpath`/`labelpath` gTrees (glyphs, polylines, boxes) |
-| Python side | probe draw calls + theme roles | `extract_panel_geometry(..., ("shapes",))` + built data | `extract_panel_geometry(..., ("points",))` | probe draw calls + `extract_panel_geometry` points | `extract_panel_geometry(..., ("shapes",))` + panel texts | probe draw calls (glyphs, polylines with native `linetype`, boxes) |
-| matching | position + words; chrome by role & order | by level | by `(panel, level)` | by `(panel, exact text)` | by `(panel, kind, axis/span, rank)` | by `(panel, text)` with centroid tie-break |
-| whole-plot checks | | `paint_order` | | `label_no_overlap`, `label_no_point_overlap`, `segment_count` | `height_conservation`, `layer_order` | |
+| | ggtext | ggridges | ggbeeswarm | ggrepel | ggalluvial | geomtextpath | ggforce | treemapify | ggstream |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| component | rich-text box or theme-element label | a ridge | a `(panel, group)` point swarm | a repelled text/label annotation | a stratum, flow ribbon, or stratum label | a labelled curve (glyphs + polyline + optional box) | a mark enclosure + optional callout & connector | a tile, subgroup border, or fitted label | a stream ribbon or stream label |
+| R side | gridtext grobs; gtable chrome | `extract_panel_geometry(..., "shapes")` + `ggplot_build` density | `extract_panel_geometry(..., "points")` | forced `textrepeltree`/`labelrepeltree` + panel points | forced panel grobs (`xsplinePoints`, polygons, text/labels) | forced `textpath`/`labelpath` gTrees (glyphs, polylines, boxes) | forced `shape`/`mark` + `labelbox` + connector grobs + panel points | forced tile `rect`, subgroup borders, and fitted `fittexttree` grobs | `extract_panel_geometry(..., "shapes")` + panel texts |
+| Python side | probe draw calls + theme roles | `extract_panel_geometry(..., ("shapes",))` + built data | `extract_panel_geometry(..., ("points",))` | probe draw calls + `extract_panel_geometry` points | `extract_panel_geometry(..., ("shapes",))` + panel texts | probe draw calls (glyphs, polylines with native `linetype`, boxes) | `extract_panel_geometry(..., ("points", "shapes"))` + probe draw calls | `extract_panel_geometry(..., ("shapes",))` + panel texts | `extract_panel_geometry(..., ("shapes",))` + panel texts |
+| matching | position + words; chrome by role & order | by level | by `(panel, level)` | by `(panel, exact text)` | by `(panel, kind, axis/span, rank)` | by `(panel, text)` with centroid tie-break | by `(panel, enclosed point set)` | by `(panel, kind, area/bbox/text)` | by `(panel, kind, fill/rank/text)` |
+| whole-plot checks | | `paint_order` | | `label_no_overlap`, `label_no_point_overlap`, `segment_count` | `height_conservation`, `layer_order` | | `callout_no_overlap`, `callout_no_point_overlap` | `tiles_no_overlap` | `stream_stacking` |
 
 ### Lessons for collision & clearance checks
 

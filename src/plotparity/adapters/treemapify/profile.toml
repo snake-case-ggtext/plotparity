@@ -1,0 +1,112 @@
+# treemapify adapter profile: tile areas, layout geometry & start-corner orientation,
+# zero tile overlap & canvas conservation, nested subgroup borders & containment,
+# fitted/reflowed/grown text containment & alignment, and tile/label styling.
+
+[checks.component_count]
+severity = "gating"
+tier = "inventory"
+calibration = "exact count of tiles, subgroup borders, and visible (non-hidden) labels"
+
+[checks.missing_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_drawing]
+severity = "gating"
+tier = "inventory"
+
+[checks.extractor_blind]
+severity = "gating"
+tier = "inventory"
+
+[checks.tile_area]
+severity = "gating"
+tier = "layout"
+tol = 0.002
+rel_tol = 0.015
+calibration = "normalized panel area; 1.5% relative tolerance with 0.002 floor for tiny tiles"
+
+[checks.tile_geometry]
+severity = "gating"
+tier = "layout"
+tol = 4.0
+calibration = "pt; tile [x0, y0, x1, y1] edges in panel points across squarified/scol/srow/fixed and 4 start corners"
+
+[checks.tile_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 for fill/border colours; alpha absolute; border linewidth"
+
+[checks.subgroup_containment]
+severity = "gating"
+tier = "layout"
+tol = 4.0
+alpha_tol = 0.05
+calibration = "pt; subgroup border bbox/style agreement and strict child-tile containment"
+
+[checks.text_fits_tile]
+severity = "gating"
+tier = "layout"
+tol = 2.0
+rel_tol = 0.35
+calibration = "pt; strict label containment inside enclosing tile/subgroup box, place alignment, reflow, and grow/shrink sizing"
+
+[checks.label_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 for text colour; alpha absolute; exact fontweight and fontstyle"
+
+[checks.tiles_no_overlap]
+severity = "gating"
+tier = "layout"
+tol = 1.5
+calibration = "pt; zero pairwise tile overlap and full treemap canvas area conservation per panel"
+
+# generic text and frame checks are superseded by the treemap-specific checks above
+[checks.text_content]
+severity = "off"
+tier = "inventory"
+[checks.text_color]
+severity = "off"
+tier = "style"
+[checks.text_alpha]
+severity = "off"
+tier = "style"
+[checks.font_weight]
+severity = "off"
+tier = "style"
+[checks.font_style]
+severity = "off"
+tier = "style"
+[checks.font_size]
+severity = "off"
+tier = "style"
+[checks.text_visible]
+severity = "off"
+tier = "inventory"
+[checks.ink_present]
+severity = "off"
+tier = "inventory"
+[checks.rotation]
+severity = "off"
+tier = "layout"
+[checks.centroid]
+severity = "off"
+tier = "layout"
+[checks.fill_color]
+severity = "off"
+tier = "style"
+[checks.edge_color]
+severity = "off"
+tier = "style"
+[checks.shape_size]
+severity = "off"
+tier = "layout"

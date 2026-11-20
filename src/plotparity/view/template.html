@@ -437,7 +437,10 @@ const UNITS = {padding:"pt", font_size:"pt", shape_size:"pt", text_overflow:"pt"
   label_inside_panel:"pt", segment_connects:"pt", label_text_style:" ΔE", label_box_style:" ΔE",
   stratum_geometry:"pt", stratum_style:" ΔE", flow_span:"pt", flow_trajectory:"pt", flow_style:" ΔE",
   label_position:"pt", label_style:" ΔE", height_conservation:"pt",
-  curve_trajectory:"pt", glyph_position:"pt", glyph_angle:"°", line_gap:"pt", text_style:" ΔE", line_style:" ΔE"};
+  curve_trajectory:"pt", glyph_position:"pt", glyph_angle:"°", line_gap:"pt", text_style:" ΔE", line_style:" ΔE",
+  mark_enclosure:"pt", mark_style:" ΔE", callout_layout:"pt", callout_style:" ΔE", connector_connects:"pt",
+  tile_area:" of panel", tile_geometry:"pt", tile_style:" ΔE", subgroup_containment:"pt", text_fits_tile:"pt", tiles_no_overlap:"pt",
+  stream_envelope:"pt", stream_stacking:"pt", stream_style:" ΔE", stream_label_position:"pt", stream_label_style:" ΔE"};
 function showTip(el){
   const c = (run().settings?.checks||[]).find(x=>x.name===el.dataset.setting); if (!c) return;
   let t = $("#tip"); if (!t) { t = document.createElement("div"); t.id = "tip"; document.body.append(t); }
