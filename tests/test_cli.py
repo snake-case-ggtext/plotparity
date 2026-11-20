@@ -108,3 +108,92 @@ def test_no_render_r_reports_stale_references(tmp_path, monkeypatch, capsys):
                  "--out", str(tmp_path / "out")])
     assert code == 2
     assert "missing or stale" in capsys.readouterr().err
+
+
+def test_view_build_config_free_filters_in_scope_and_aligns_unmatched_key(tmp_path):
+    import re
+
+    from plotparity.view.build import build
+
+    lib = FIXTURES / "cases" / "ggtext"
+    cid = "richtext_example_markup"
+    run_dir = tmp_path / "run"
+    cdir = run_dir / "render" / cid
+    cdir.mkdir(parents=True)
+    # Candidate observations: 5 in-panel boxes (R has 4 -> 1 unmatched) + 1 out-of-scope plain plot.title
+    cand_obs = {
+        "figure_px": [640, 480],
+        "dpi": 72.0,
+        "panels_norm_tl": [[0.1, 0.1, 0.9, 0.9]],
+        "owners": [],
+        "roles": [{"role": "plot.title", "role_index": 0, "class": "Text"}],
+        "events": [
+            {"kind": "text", "paint_index": 1, "groups": ["figure"], "group_ids": [1], "owner": None,
+             "role": "plot.title", "role_index": 0, "role_artist": 0, "text": "Plain title",
+             "x_norm": 0.5, "y_norm": 0.05, "color_hex": "#000000", "alpha": 1.0,
+             "fontsize_pt": 12.0, "fontweight": "normal", "fontstyle": "normal", "angle_deg": 0.0},
+            *[
+                {"kind": "text", "paint_index": i + 2, "groups": ["axes", "richtext"], "group_ids": [1, i + 10],
+                 "owner": None, "text": f"Box{i}", "x_norm": 0.2 + 0.15 * i, "y_norm": 0.5,
+                 "color_hex": "#000000", "alpha": 1.0, "fontsize_pt": 11.0,
+                 "fontweight": "normal", "fontstyle": "normal", "angle_deg": 0.0}
+                for i in range(5)
+            ],
+        ],
+    }
+    (cdir / "observations.json").write_text(json.dumps(cand_obs))
+    rep = {
+        "status": "fail",
+        "created": "2026-01-01T00:00:00",
+        "project": str(tmp_path),            # no parity.toml here (config-free run)
+        "config": None,
+        "package": "plotnine_ggtext",
+        "cases_root": str(lib),
+        "case_ids": [cid],
+        "selection": "1 cases",
+        "candidate": {"source": str(tmp_path), "commit": "abcdef123456"},
+        "profile": {},
+        "cases": [{"case": cid, "relpath": f"geom_richtext/{cid}", "split": None, "status": "fail",
+                   "findings": [], "reference_png": str(lib / "_references" / cid / "reference.png"),
+                   "candidate_png": None}],
+    }
+    rf = run_dir / "report.json"
+    rf.write_text(json.dumps(rep))
+    html = build([rf], run_dir / "report.html").read_text()
+    m = re.search(r"const D = (\{.*?\});\nconst IMG =", html)
+    assert m is not None
+    data = json.loads(m.group(1))
+    r0 = data["runs"][0]
+    assert r0["package"] == "plotnine_ggtext"
+    assert "plotnine_ggtext@abcdef1" in r0["label"]
+    assert cid in data["cases"] and data["cases"][cid]["r"]
+    assert r0["settings"]["files"].get("defaults", "").endswith("profile.toml")
+    geom = r0["cases"][0]["geom"]
+    assert "_error" not in geom
+    assert not any(k.startswith("box[unmatched_cand_") for k in geom)
+    # Out-of-scope plain plot.title must not leak into unmatched_candidate entries; only the 1 extra panel box does
+    unmatched = [k for k in geom if k.startswith("unmatched_candidate[")]
+    assert len(unmatched) == 1
+
+
+def test_port_ink_counts_ink_outside_first_panel(tmp_path):
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.text import Text
+
+    from plotparity.engines.python.probe import record
+    from plotparity.engines.python.worker import _port_ink
+
+    class PortTitle(Text):
+        pass
+
+    PortTitle.__module__ = "fake_port.theme"
+    fig, ax = plt.subplots(figsize=(4, 3), dpi=72)
+    FigureCanvasAgg(fig)
+    title = PortTitle(0.5, 0.95, "Rich Title", transform=fig.transFigure, ha="center", va="top", color="red")
+    fig.add_artist(title)
+    fig.canvas.draw()
+    obs, rgba = record(fig)
+    ink = _port_ink(fig, "fake_port", rgba, obs)
+    plt.close(fig)
+    assert ink is not None and ink > 0

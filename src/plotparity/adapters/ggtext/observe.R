@@ -262,17 +262,6 @@ extract_r_grob_semantics <- function(p, width_in, height_in, dpi) {
 # ("axis-b/axis", "guide-box-right/guides/label-2-3", ...) to a ggplot2 theme role. A gTree of gridtext.* grobs is
 # one rich-text label ("rich"); a plain text grob in a theme cell is "plain" (not compared). Sizes in bigpts.
 
-.r_hex <- function(v, default) {
-  if (is.null(v) || length(v) == 0 || is.na(v[1])) return(default)
-  v <- as.character(v[1])
-  if (v %in% c("none", "transparent", "NA")) return("none")
-  rgba <- tryCatch(grDevices::col2rgb(v, alpha = TRUE)[, 1], error = function(e) NULL)
-  if (is.null(rgba)) return(v)
-  if (rgba[4] == 0) return("none")
-  if (rgba[4] < 255) sprintf("#%02X%02X%02X%02X", rgba[1], rgba[2], rgba[3], rgba[4]) else
-    sprintf("#%02X%02X%02X", rgba[1], rgba[2], rgba[3])
-}
-
 # gtable cell path -> ggplot2 theme role. NA = not a text role (backgrounds, panels, ...).
 chrome_role <- function(path) {
   top <- path[1]
@@ -331,10 +320,12 @@ extract_chrome <- function(p, width_in, height_in, dpi) {
   }
   cell_re <- "^(.+)\\.(\\d+)-(\\d+)-(\\d+)-(\\d+)$"
 
+  gp_alpha <- function(gp) if (is.null(gp) || is.null(gp$alpha) || is.na(gp$alpha[1])) 1.0 else as.numeric(gp$alpha[1])
+
   comps <- list()
   emit <- function(x) comps[[length(comps) + 1]] <<- x
 
-  run_info <- function(ch, angle) {
+  run_info <- function(ch, angle, inherited_alpha = 1.0) {
     # one gridtext.text / plain text grob -> list of runs (plain text grobs may be vectorised)
     out <- list()
     lbl <- as.character(ch$label)
@@ -345,6 +336,7 @@ extract_chrome <- function(p, width_in, height_in, dpi) {
     xs <- rep_len(ch$x, n); ys <- rep_len(ch$y, n)
     font <- if (is.null(ch$gp$font)) 1L else as.integer(ch$gp$font)
     rot <- if (is.null(ch$rot)) 0 else as.numeric(ch$rot)
+    alphas <- if (is.null(ch$gp$alpha)) rep(1.0, n) else rep_len(as.numeric(ch$gp$alpha), n)
     for (i in seq_len(n)) {
       if (!nzchar(lbl[i])) next
       w_pt <- convertWidth(grobWidth(textGrob(lbl[i], gp = ch$gp)), "bigpts", valueOnly = TRUE)
@@ -358,24 +350,25 @@ extract_chrome <- function(p, width_in, height_in, dpi) {
       dy <- -hj * w_pt * sin(th) - vj * h_pt * cos(th)
       a <- dloc(xs[i] + unit(dx, "bigpts"), ys[i] + unit(dy, "bigpts"))
       f <- rep_len(font, n)[i]
+      ai <- if (is.na(alphas[i])) 1.0 else alphas[i]
       out[[length(out) + 1]] <- list(
         text = lbl[i], x_norm = a[1], y_norm = a[2],
         hjust = if (is.null(ch$hjust)) NA else rep_len(as.numeric(ch$hjust), n)[i],
         vjust = if (is.null(ch$vjust)) NA else rep_len(as.numeric(ch$vjust), n)[i],
         width_pt = round(w_pt, 3),
-        color = .r_hex(rep_len(ch$gp$col, n)[i], "#000000"),
+        color = r_hex(rep_len(ch$gp$col, n)[i], "#000000"),
         fontsize_pt = if (is.null(ch$gp$fontsize)) NA else round(rep_len(as.numeric(ch$gp$fontsize), n)[i], 3),
         fontweight = if (f %in% c(2, 4)) "bold" else "normal",
         fontstyle = if (f %in% c(3, 4)) "italic" else "normal",
         fontfamily = if (is.null(ch$gp$fontfamily)) "" else as.character(ch$gp$fontfamily)[1],
-        alpha = if (is.null(ch$gp$alpha) || is.na(ch$gp$alpha[1])) 1 else as.numeric(ch$gp$alpha[1]),
+        alpha = inherited_alpha * ai,
         angle_deg = round(((angle + rot + 180) %% 360) - 180, 3))
     }
     if (pushed) popViewport(pushed)
     out
   }
 
-  rect_info <- function(ch) {
+  rect_info <- function(ch, inherited_alpha = 1.0) {
     pushed <- 0
     if (!is.null(ch$vp)) { pushViewport(ch$vp); pushed <- depth(ch$vp) }
     on.exit(if (pushed) popViewport(pushed))
@@ -394,17 +387,19 @@ extract_chrome <- function(p, width_in, height_in, dpi) {
     }
     list(width_pt = round(max(xl) - min(xl), 3), height_pt = round(max(yl) - min(yl), 3),
          vertex_count = nv, is_rounded = nv > 6,
-         fill = .r_hex(ch$gp$fill, "none"),
+         fill = r_hex(ch$gp$fill, "none"),
          # border is invisible when lty is blank/0 (element_textbox_simple default) or lwd is 0
          col = if (!is.null(ch$gp$lty) && as.character(ch$gp$lty[1]) %in% c("0", "blank")) "none"
-               else if (!is.null(ch$gp$lwd) && as.numeric(ch$gp$lwd[1]) <= 0) "none" else .r_hex(ch$gp$col, "none"),
+               else if (!is.null(ch$gp$lwd) && as.numeric(ch$gp$lwd[1]) <= 0) "none" else r_hex(ch$gp$col, "none"),
+         alpha = inherited_alpha * gp_alpha(ch$gp),
          lty = if (is.null(ch$gp$lty)) NA else as.character(ch$gp$lty[1]),
          lwd = if (is.null(ch$gp$lwd)) NA else as.numeric(ch$gp$lwd),
          bbox_norm_tl = round(c(min(xs), min(ys), max(xs), max(ys)), 5))
   }
 
-  walk <- function(gr, path, angle) {
+  walk <- function(gr, path, angle, inherited_alpha = 1.0) {
     if (is.null(gr)) return(invisible())
+    cur_alpha <- inherited_alpha * gp_alpha(gr$gp)
     pushed <- 0
     if (!is.null(gr$vp)) { pushViewport(gr$vp); pushed <- depth(gr$vp); angle <- angle + vp_angle(gr$vp) }
     on.exit(if (pushed) popViewport(pushed), add = TRUE)
@@ -418,22 +413,22 @@ extract_chrome <- function(p, width_in, height_in, dpi) {
       if (any(grepl("^gridtext\\.", cn))) {          # one rich-text label (one richtext/textbox "box")
         runs <- list(); rect <- NULL
         for (ch in gr$children) {
-          if (inherits(ch, "text")) runs <- c(runs, run_info(ch, angle))
-          else if (inherits(ch, "polygon") || inherits(ch, "roundrect") || inherits(ch, "rect")) rect <- rect_info(ch)
+          if (inherits(ch, "text")) runs <- c(runs, run_info(ch, angle, cur_alpha))
+          else if (inherits(ch, "polygon") || inherits(ch, "roundrect") || inherits(ch, "rect")) rect <- rect_info(ch, cur_alpha)
         }
         emit(list(kind = "rich", role = role, cell_path = paste(path, collapse = "/"),
                   grob = nm, angle_deg = round(((angle + 180) %% 360) - 180, 3), rect = rect, text_runs = runs))
         return(invisible())
       }
-      for (ch in gr$children) walk(ch, path, angle)
+      for (ch in gr$children) walk(ch, path, angle, cur_alpha)
     } else if (inherits(gr, "text") && !is.na(role)) {   # plain element_text chrome
-      runs <- run_info(gr, angle)
+      runs <- run_info(gr, angle, inherited_alpha)
       for (r in runs) emit(list(kind = "plain", role = role, cell_path = paste(path, collapse = "/"),
                                 grob = nm, angle_deg = r$angle_deg, rect = NULL, text_runs = list(r)))
     }
     invisible()
   }
-  walk(top, character(), 0)
+  walk(top, character(), 0, 1.0)
 
   upViewport(0)
   list(engine = "r", panels_norm_tl = panels, components = comps,

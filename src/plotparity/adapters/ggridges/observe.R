@@ -82,7 +82,8 @@ adapter_observe <- function(p, w_in, h_in, dpi) {
   for (ch in panel_gtree$children) walk(ch)
   upViewport(0)
 
-  d <- b$data[[1]]
+  ridge_idx <- which(vapply(b$data, function(df) any(c("density", "height") %in% names(df)), logical(1)))
+  d <- if (length(ridge_idx)) b$data[[ridge_idx[1]]] else b$data[[1]]
   build <- list()
   if (all(c("x", "y") %in% names(d))) {
     if ("datatype" %in% names(d)) d <- d[d$datatype == "ridgeline", , drop = FALSE]

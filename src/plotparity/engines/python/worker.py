@@ -127,29 +127,31 @@ def draw_plot(p, png: Path, dpi: int, width_px: int, height_px: int, package: st
 
 
 def _port_ink(fig, package: str, rgba, obs: dict) -> int | None:
-    """Panel pixels that differ when the port's top-level artists are hidden (None: no panel)."""
+    """Canvas pixels that differ when the port's top-level artists are hidden (layout frozen so hiding a chrome
+    artist cannot reflow axes and shift unrelated pixels)."""
     import numpy as np
 
     from plotparity.engines.python.probe import is_port_module, top_level_artists
 
-    if not obs["panels_norm_tl"]:
-        return None
     mine = [a for a, _ in top_level_artists(fig) if is_port_module(type(a).__module__, package) and a.get_visible()]
     if not mine:
         return 0
+    base = fig.canvas.get_renderer()
+    eng = fig.get_layout_engine()
     for a in mine:
         a.set_visible(False)
     try:
-        fig.canvas.draw()
-        other = np.asarray(fig.canvas.buffer_rgba())[..., :3].astype(int)
+        if eng is not None:
+            fig.set_layout_engine("none")
+        base.clear()
+        fig.draw(base)
+        other = np.asarray(base.buffer_rgba())[..., :3].astype(int)
     finally:
+        if eng is not None:
+            fig.set_layout_engine(eng)
         for a in mine:
             a.set_visible(True)
-    h, w = rgba.shape[:2]
-    x0, y0, x1, y1 = obs["panels_norm_tl"][0]
-    rows = slice(max(0, int(y0 * h)), min(h, int(np.ceil(y1 * h))))
-    cols = slice(max(0, int(x0 * w)), min(w, int(np.ceil(x1 * w))))
-    return int((np.abs(rgba[rows, cols, :3].astype(int) - other[rows, cols]).max(axis=-1) > 0).sum())
+    return int((np.abs(rgba[..., :3].astype(int) - other).max(axis=-1) > 0).sum())
 
 
 def _adapter_hook(name: str | None):

@@ -105,3 +105,71 @@ def test_observe_py_reads_plotnine_internals():
     ys = [y for x, y in fills[0]["pieces"][0]["data"]]
     assert abs(min(ys) - 1.0) < 1e-6 and abs(max(ys) - 1.5) < 1e-6          # data units, not pixels
     assert st["build"] and {"x"} <= set(st["build"][0])                      # built layer data was read
+
+
+def test_outline_only_ridge_and_missing_fill_do_not_crash_evaluate_case():
+    from types import SimpleNamespace
+
+    from plotparity.compare import evaluate_case
+
+    P = load_profile(A, {})
+    case = SimpleNamespace(id="no_fill", relpath="no_fill", expect={}, measurable=True, why="")
+    outline_only = copy.deepcopy(_obs())
+    outline_only["ggridges"]["events"] = [e for e in outline_only["ggridges"]["events"] if not e["filled"]]
+    outline_only.update(owners=[], events=[], port_ink_px=10)
+    full = copy.deepcopy(_obs())
+    full.update(owners=[], events=[], port_ink_px=10)
+
+    res_same = evaluate_case(case, A, P, [], {"observations": outline_only}, {"observations": outline_only},
+                             package="ridgenine")
+    assert res_same["status"] == "pass", res_same["findings"]
+
+    res_missing = evaluate_case(case, A, P, [], {"observations": full}, {"observations": outline_only},
+                                package="ridgenine")
+    assert res_missing["status"] == "fail"
+    assert any(f["check"] == "ridge_pieces" for f in res_missing["findings"])
+    assert not any(f["status"] == "infrastructure_error" for f in res_missing["findings"])
+
+
+def test_custom_port_artist_assigned_and_unextracted_artist_fails_closed():
+    from types import SimpleNamespace
+
+    from plotparity.compare import evaluate_case
+
+    P = load_profile(A, {})
+    case = SimpleNamespace(id="custom_artist", relpath="custom_artist", expect={}, measurable=True, why="")
+    ref = _obs()
+    cand = copy.deepcopy(_obs())
+    cand["ggridges"]["extracted_classes"] = ["ridgenine.geom.RidgeCollection"]
+    cand["owners"] = [{"class": "ridgenine.geom.RidgeCollection", "module": "ridgenine.geom", "parent": "axes"}]
+    cand["events"] = [{"kind": "draw_path_collection", "paint_index": 1, "owner": 0}]
+    cand["port_ink_px"] = 100
+    res_ok = evaluate_case(case, A, P, [], {"observations": ref}, {"observations": cand}, package="ridgenine")
+    assert res_ok["status"] == "pass", res_ok["findings"]
+
+    cand_bad = copy.deepcopy(cand)
+    cand_bad["owners"].append({"class": "ridgenine.geom.UnknownArtist", "module": "ridgenine.geom", "parent": "axes"})
+    cand_bad["events"].append({"kind": "draw_quad_mesh", "paint_index": 2, "owner": 1})
+    res_bad = evaluate_case(case, A, P, [], {"observations": ref}, {"observations": cand_bad}, package="ridgenine")
+    assert res_bad["status"] == "fail"
+    assert any(f["check"] == "unexpected_drawing" for f in res_bad["findings"])
+
+
+def test_observe_py_picks_ridge_layer_over_layer_0():
+    import pandas as pd
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from plotnine import aes, geom_point, geom_ribbon, ggplot
+
+    from plotparity.adapters.ggridges.observe_py import observe
+
+    pts = pd.DataFrame({"x": [0.0, 2.0], "y": ["a", "b"]})
+    rib = pd.DataFrame({"x": [0.0, 1.0, 2.0], "lo": [1.0, 1.0, 1.0], "hi": [1.0, 1.5, 1.0]})
+    p = ggplot() + geom_point(aes("x", "y"), pts) + geom_ribbon(aes("x", ymin="lo", ymax="hi"), rib)
+    fig = p.draw()
+    FigureCanvasAgg(fig)
+    fig.canvas.draw()
+    # simulate a ridge stat layer at index 1 carrying `density`
+    p.layers[1].data["y"] = 1.0
+    p.layers[1].data["density"] = [0.1, 0.5, 0.1]
+    st = observe(fig, p)["ggridges"]
+    assert st["build"] and st["build"][0]["density"] == [0.1, 0.5, 0.1]

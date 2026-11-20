@@ -40,11 +40,14 @@ def observe(fig, plot) -> dict:
     fig_w, fig_h = fig.canvas.get_width_height()
     pp = plot.layout.panel_params[0]
     events, paint = [], 0
+    extracted_classes: set[str] = set()
     artists = [a for a in ax.get_children() if a.get_visible() and type(a).__name__ not in _SKIP
                and a is not ax.patch]
     for a in sorted(artists, key=lambda a: a.get_zorder()):      # matplotlib draws by zorder, stably
-        name = type(a).__name__
+        cls = type(a)
+        name = cls.__name__
         if name == "Line2D":
+            extracted_classes.add(f"{cls.__module__}.{cls.__qualname__}")
             paint += 1
             ec, ea = _col(a.get_color())
             ea = round(ea * (a.get_alpha() if a.get_alpha() is not None else 1.0), 4)
@@ -52,6 +55,7 @@ def observe(fig, plot) -> dict:
                            "edgecolor_hex": ec, "edge_alpha": ea, "linewidth_pt": float(a.get_linewidth()),
                            "pieces": _pieces([a.get_path()], a.get_transform(), ax, fig_w, fig_h)})
         elif hasattr(a, "get_paths") or hasattr(a, "get_path"):
+            extracted_classes.add(f"{cls.__module__}.{cls.__qualname__}")
             paths = a.get_paths() if hasattr(a, "get_paths") else [a.get_path()]
             fcs = np.atleast_2d(a.get_facecolor()) if hasattr(a, "get_facecolor") else np.zeros((1, 4))
             ecs = np.atleast_2d(a.get_edgecolor()) if hasattr(a, "get_edgecolor") else np.zeros((1, 4))
@@ -68,7 +72,8 @@ def observe(fig, plot) -> dict:
                                "edgecolor_hex": ec, "edge_alpha": ea, "linewidth_pt": lw if ec != "none" else 0.0,
                                "pieces": _pieces([path], transform, ax, fig_w, fig_h)})
     build = []
-    d = plot.layers[0].data if plot.layers else None
+    d = next((ly.data for ly in plot.layers if ly.data is not None and ({"density", "height"} & set(ly.data.columns))),
+             plot.layers[0].data if plot.layers else None)
     if d is not None and {"x", "y"} <= set(d.columns):
         if "datatype" in d.columns:
             d = d[d["datatype"] == "ridgeline"]
@@ -79,4 +84,5 @@ def observe(fig, plot) -> dict:
     labels = list(getattr(pp.y, "labels", []) or [])
     return {"ggridges": {"panel_x_range": [float(v) for v in pp.x.range],
                          "panel_y_range": [float(v) for v in pp.y.range],
-                         "y_labels": [str(v) for v in labels], "events": events, "build": build}}
+                         "y_labels": [str(v) for v in labels], "events": events, "build": build,
+                         "extracted_classes": sorted(extracted_classes)}}

@@ -397,7 +397,8 @@ function offHtml(f){   // "off by 3.1 · limit 2" for numeric findings with a to
   return `<button class="off" data-setting="${esc(f.check)}" data-tol="${n(f.tol)}">Δ ${n(f.delta)} &gt; ${n(f.tol)}</button>`;
 }
 const UNITS = {padding:"pt", font_size:"pt", shape_size:"pt", text_overflow:"pt", sup_sub_offset:"pt", rotation:"°",
-  text_color:" ΔE", fill_color:" ΔE", edge_color:" ΔE", line_count:" lines", centroid:" of canvas"};
+  text_color:" ΔE", fill_color:" ΔE", edge_color:" ΔE", line_count:" lines", centroid:" of canvas",
+  chrome_position:" of panel", ridge_position:"pt", ridge_fill:" ΔE", ridge_outline:" ΔE"};
 function showTip(el){
   const c = (run().settings?.checks||[]).find(x=>x.name===el.dataset.setting); if (!c) return;
   let t = $("#tip"); if (!t) { t = document.createElement("div"); t.id = "tip"; document.body.append(t); }

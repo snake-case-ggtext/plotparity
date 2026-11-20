@@ -101,8 +101,8 @@ def components(engine: str, obs: dict[str, Any], expect: dict[str, Any],
         r["fills"].sort(key=lambda p: p["x_min"])
         r["strokes"].sort(key=lambda p: p["x_min"])
         f = r["fills"]
-        r["baseline"] = min(p["y_min"] for p in f) if f else float("nan")
-        r["peak"] = (max(p["y_max"] for p in f) - r["baseline"]) if f else float("nan")
+        r["baseline"] = min(p["y_min"] for p in f) if f else None
+        r["peak"] = (max(p["y_max"] for p in f) - r["baseline"]) if f else None
         allp = f + r["strokes"]
         r["paint_first"] = min(p["paint_index"] for p in allp)
         r["bbox_norm_tl"] = [min(p["bbox_norm_tl"][0] for p in allp), min(p["bbox_norm_tl"][1] for p in allp),
@@ -112,7 +112,11 @@ def components(engine: str, obs: dict[str, Any], expect: dict[str, Any],
         r["density"] = (np.asarray(b["x"], float), np.asarray(b["density"], float)) \
             if b and isinstance(b.get("density"), list) and len(b["density"]) == len(b["x"]) > 1 else None
         comps.append(r)
-    return comps + stray, set()
+    extracted = set(st.get("extracted_classes") or [])
+    owners = obs.get("owners") or []
+    assigned = {e["paint_index"] for e in obs.get("events") or []
+                if e.get("owner") is not None and owners[e["owner"]]["class"] in extracted} if extracted else set()
+    return comps + stray, assigned
 
 
 def component_id(i: int, comp: dict) -> str:
