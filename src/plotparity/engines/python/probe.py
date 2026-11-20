@@ -98,6 +98,27 @@ def _norm_angle(deg: float) -> float:
     return round(a, 3)
 
 
+def _dashes_to_linetype(offset, seq, lw_pt: float = 1.0) -> tuple[list[float] | None, str]:
+    """Normalize matplotlib `gc.get_dashes()` into `(dash_list | None, ggplot2_linetype_name)`."""
+    if seq is None or len(seq) == 0:
+        return None, "solid"
+    arr = [round(float(v), 3) for v in seq]
+    if not arr or all(v <= 0 for v in arr):
+        return None, "solid"
+    scale = max(float(lw_pt), 1.0)
+    norm = [v / scale for v in arr]
+    if len(norm) >= 4:
+        return arr, ("dotdash" if (min(norm) <= 2.0 and max(norm) >= 3.5) else "twodash")
+    if len(norm) >= 2:
+        on, off = norm[0], norm[1]
+        if on <= 2.0:
+            return arr, "dotted"
+        if on >= 5.5 and on > off * 1.5:
+            return arr, "longdash"
+        return arr, "dashed"
+    return arr, "dashed"
+
+
 def _effective_face_alpha(gc, rgb_face) -> float:
     """Alpha Agg actually paints a face with: a forced gc alpha (artist `alpha=`) or an RGB (3-tuple) face takes
     the gc alpha, otherwise the face colour's own alpha (matplotlib `_backend_agg_wrapper` convert_face)."""
@@ -175,6 +196,21 @@ class RecordingRendererProxy:
             lw_pt = round(float(gc.get_linewidth()), 3)
             if lw_pt == 0.0:
                 ec_hex, ec_alpha = "none", 0.0
+            dashes, linetype = _dashes_to_linetype(*gc.get_dashes(), lw_pt=lw_pt)
+            if ec_hex == "none":
+                linetype = "blank"
+            sampled_polys = None
+            if has_curve:
+                try:
+                    polys = tpath.to_polygons(closed_only=False)
+                    if polys:
+                        sampled_polys = [
+                            [[round(float(vx) / self._fig_w, 5), round(1.0 - float(vy) / self._fig_h, 5)]
+                             for vx, vy in poly]
+                            for poly in polys if len(poly) >= 2
+                        ]
+                except Exception:
+                    sampled_polys = None
             clip_rect = gc.get_clip_rectangle()
             clip_tl = (
                 bbox_bl_to_norm_tl(
@@ -185,7 +221,7 @@ class RecordingRendererProxy:
                 else None
             )
             # Compute local (unrotated) dimensions from raw path when transform is affine
-            self.events.append({
+            ev = {
                 "kind": "path",
                 "paint_index": self._paint_index,
                 "groups": list(self._group_stack), "group_ids": list(self._group_ids), "owner": self._owner(), **self._role(),
@@ -203,12 +239,17 @@ class RecordingRendererProxy:
                 "edgecolor_hex": ec_hex,
                 "edge_alpha": ec_alpha,
                 "linewidth_pt": lw_pt,
+                "linetype": linetype,
+                "dashes": dashes,
                 "clip_bbox_norm_tl": clip_tl,
                 "vertices_norm_tl": [
                     [round(float(vx) / self._fig_w, 5), round(1.0 - float(vy) / self._fig_h, 5)]
                     for vx, vy in verts
                 ],
-            })
+            }
+            if sampled_polys is not None:
+                ev["sampled_vertices_norm_tl"] = sampled_polys
+            self.events.append(ev)
         return self._wrapped.draw_path(gc, path, transform, rgbFace)
 
     def draw_text(self, gc, x, y, s, prop, angle, ismath=False, mtext=None):

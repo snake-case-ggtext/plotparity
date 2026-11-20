@@ -1,0 +1,1 @@
+"""geomtextpath adapter for plotparity."""

@@ -179,3 +179,60 @@ def test_ggbeeswarm_adapter_catches_overlap_and_shifted_values():
                         package="plotnine_ggbeeswarm")
     checks = {f["check"] for f in res["findings"] if f["status"] == "fail"}
     assert "value_axis" in checks and "point_overlap" in checks
+
+
+def test_probe_records_dashes_linetype_and_samples_curve4_paths():
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import PathPatch
+    from matplotlib.path import Path as MplPath
+
+    fig, ax = plt.subplots(figsize=(4, 3), dpi=72)
+    FigureCanvasAgg(fig)
+    ax.plot([0, 1], [0, 1], linestyle="--", color="#cc0000", linewidth=2.0)
+    ax.plot([0, 1], [1, 0], linestyle=":", color="#0066cc", linewidth=1.5)
+    # Cubic Bezier curve patch (CURVE4)
+    cpath = MplPath(
+        [(0.1, 0.2), (0.3, 0.9), (0.7, 0.9), (0.9, 0.2)],
+        [MplPath.MOVETO, MplPath.CURVE4, MplPath.CURVE4, MplPath.CURVE4],
+    )
+    ax.add_patch(PathPatch(cpath, facecolor="none", edgecolor="#228833", linewidth=1.5))
+    fig.canvas.draw()
+    obs, _ = record(fig)
+    plt.close(fig)
+
+    paths = [e for e in obs["events"] if e["kind"] == "path"]
+    dashed = [e for e in paths if e.get("edgecolor_hex") == "#cc0000"]
+    dotted = [e for e in paths if e.get("edgecolor_hex") == "#0066cc"]
+    curved = [e for e in paths if e.get("has_curve4") and e.get("edgecolor_hex") == "#228833"]
+    assert dashed and dashed[0]["linetype"] == "dashed" and dashed[0]["dashes"]
+    assert dotted and dotted[0]["linetype"] == "dotted" and dotted[0]["dashes"]
+    assert curved and len(curved[0]["sampled_vertices_norm_tl"][0]) > len(curved[0]["vertices_norm_tl"])
+
+
+def test_r_panel_geometry_extracts_rect_xspline_and_linetype():
+    import json
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    if not shutil.which("Rscript"):
+        return
+    pg_r = Path(__file__).resolve().parent.parent / "src" / "plotparity" / "engines" / "r" / "panel_geometry.R"
+    r_code = f"""
+    suppressPackageStartupMessages({{ library(ggplot2); library(grid); library(ragg); library(jsonlite) }})
+    source({json.dumps(str(pg_r))})
+    df <- data.frame(x = c(1, 2, 3), y = c(1, 3, 2), g = c("a", "b", "c"))
+    p <- ggplot(df, aes(x, y)) +
+      geom_col(aes(fill = g), width = 0.5) +
+      geom_line(linetype = "dashed", colour = "#cc0000")
+    out <- extract_panel_geometry(p, 4, 3, 72, kinds = "shapes")
+    cat(toJSON(out, auto_unbox = TRUE))
+    """
+    proc = subprocess.run(["Rscript", "-e", r_code], capture_output=True, text=True, check=True)
+    data = json.loads(proc.stdout)
+    shapes = data["panels"][0]["shapes"]
+    rects = [s for s in shapes if s["kind"] == "rect"]
+    lines = [s for s in shapes if s["kind"] == "polyline"]
+    assert len(rects) == 3
+    assert len({r["facecolor_hex"] for r in rects}) == 3
+    assert any(l["linetype"] == "dashed" and l["edgecolor_hex"] == "#cc0000" for l in lines)

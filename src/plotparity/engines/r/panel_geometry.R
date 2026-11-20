@@ -17,6 +17,20 @@ pg_col <- function(col) {
   list(hex = tolower(sprintf("#%02X%02X%02X", m[1], m[2], m[3])), alpha = round(m[4] / 255, 4))
 }
 
+pg_lty <- function(lty) {
+  if (is.null(lty) || length(lty) == 0 || is.na(lty[1])) return("solid")
+  s <- tolower(trimws(as.character(lty[1])))
+  map <- c("0" = "blank", "1" = "solid", "2" = "dashed", "3" = "dotted",
+           "4" = "dotdash", "5" = "longdash", "6" = "twodash")
+  if (s %in% names(map)) return(unname(map[[s]]))
+  if (s %in% unname(map)) return(s)
+  if (grepl("^[0-9a-f]{2,}$", s)) {
+    if (nchar(s) >= 4) return("dotdash")
+    return("dashed")
+  }
+  "solid"
+}
+
 pg_panel_order <- function(pv_names) {
   if (length(pv_names) <= 1) return(pv_names)
   m <- regmatches(pv_names, regexec("^panel-(\\d+)-(\\d+)", pv_names))
@@ -115,9 +129,9 @@ extract_panel_geometry <- function(p, w_in, h_in, dpi, kinds = c("points", "shap
           )
         }
       } else if ("shapes" %in% kinds && (inherits(gr, "polygon") || inherits(gr, "polyline") ||
-                                         inherits(gr, "pathgrob") || inherits(gr, "segments"))) {
+                                         inherits(gr, "pathgrob") || inherits(gr, "segments") ||
+                                         inherits(gr, "xspline") || inherits(gr, "rect"))) {
         paint <<- paint + 1L
-        filled <- inherits(gr, "polygon") || inherits(gr, "pathgrob")
         if (inherits(gr, "segments")) {
           x0 <- convertX(gr$x0, "npc", valueOnly = TRUE); x1 <- convertX(gr$x1, "npc", valueOnly = TRUE)
           y0 <- convertY(gr$y0, "npc", valueOnly = TRUE); y1 <- convertY(gr$y1, "npc", valueOnly = TRUE)
@@ -129,7 +143,8 @@ extract_panel_geometry <- function(p, w_in, h_in, dpi, kinds = c("points", "shap
           alphas <- if (is.null(gr$gp$alpha)) rep(1, n) else rep_len(as.numeric(gr$gp$alpha), n)
           for (k in seq_len(n)) {
             if (!all(is.finite(c(x0[k], x1[k], y0[k], y1[k])))) next
-            blank <- ltys[k] %in% c("0", "blank") || is.na(lwds[k]) || lwds[k] <= 0
+            lt <- pg_lty(ltys[k])
+            blank <- lt == "blank" || is.na(lwds[k]) || lwds[k] <= 0
             c1 <- if (blank) list(hex = "none", alpha = 0) else pg_col(cols[k])
             a1 <- inh_alpha * (if (is.na(alphas[k])) 1 else alphas[k])
             cc <- conv_pts(c(x0[k], x1[k]), c(y0[k], y1[k]))
@@ -138,35 +153,132 @@ extract_panel_geometry <- function(p, w_in, h_in, dpi, kinds = c("points", "shap
               facecolor_hex = "none", face_alpha = 0,
               edgecolor_hex = c1$hex, edge_alpha = round(c1$alpha * a1, 4),
               linewidth_pt = if (c1$hex == "none") 0 else round(lwds[k] * 72 / 96, 4),
+              linetype = if (c1$hex == "none") "blank" else lt,
               pieces = list(list(data = cc$data, norm = cc$norm))
             )
           }
+        } else if (inherits(gr, "rect")) {
+          hj <- grid::resolveHJust(gr$just, gr$hjust); vj <- grid::resolveVJust(gr$just, gr$vjust)
+          cx <- convertX(gr$x, "npc", valueOnly = TRUE); cy <- convertY(gr$y, "npc", valueOnly = TRUE)
+          ws <- convertWidth(gr$width, "npc", valueOnly = TRUE); hs <- convertHeight(gr$height, "npc", valueOnly = TRUE)
+          n <- max(length(cx), length(cy), length(ws), length(hs))
+          cx <- rep_len(cx, n); cy <- rep_len(cy, n); ws <- rep_len(ws, n); hs <- rep_len(hs, n)
+          fills <- if (is.null(gr$gp$fill)) rep(NA_character_, n) else rep_len(gr$gp$fill, n)
+          cols <- if (is.null(gr$gp$col)) rep(NA_character_, n) else rep_len(gr$gp$col, n)
+          lwds <- if (is.null(gr$gp$lwd)) rep(1, n) else rep_len(as.numeric(gr$gp$lwd), n)
+          ltys <- if (is.null(gr$gp$lty)) rep("solid", n) else rep_len(as.character(gr$gp$lty), n)
+          alphas <- if (is.null(gr$gp$alpha)) rep(1, n) else rep_len(as.numeric(gr$gp$alpha), n)
+          for (k in seq_len(n)) {
+            if (!all(is.finite(c(cx[k], cy[k], ws[k], hs[k])))) next
+            x0 <- cx[k] - hj * ws[k]; x1 <- x0 + ws[k]
+            y0 <- cy[k] - vj * hs[k]; y1 <- y0 + hs[k]
+            lt <- pg_lty(ltys[k])
+            blank <- lt == "blank" || is.na(lwds[k]) || lwds[k] <= 0
+            c1 <- if (blank) list(hex = "none", alpha = 0) else pg_col(cols[k])
+            f1 <- pg_col(fills[k])
+            a1 <- inh_alpha * (if (is.na(alphas[k])) 1 else alphas[k])
+            cc <- conv_pts(c(x0, x1, x1, x0, x0), c(y0, y0, y1, y1, y0))
+            shapes[[length(shapes) + 1L]] <<- list(
+              kind = "rect", paint_index = paint, filled = f1$hex != "none", is_rounded = FALSE,
+              facecolor_hex = f1$hex, face_alpha = round(f1$alpha * a1, 4),
+              edgecolor_hex = c1$hex, edge_alpha = round(c1$alpha * a1, 4),
+              linewidth_pt = if (c1$hex == "none" || is.na(lwds[k])) 0 else round(lwds[k] * 72 / 96, 4),
+              linetype = if (c1$hex == "none") "blank" else lt,
+              pieces = list(list(data = cc$data, norm = cc$norm))
+            )
+          }
+        } else if (inherits(gr, "xspline")) {
+          pts_x <- tryCatch(grid::xsplinePoints(gr), error = function(e) NULL)
+          if (!is.null(pts_x)) {
+            # xsplinePoints returns either a single (x, y) list or a list of per-id (x, y) lists
+            p_list <- if (!is.null(pts_x$x)) list(pts_x) else pts_x
+            np <- length(p_list)
+            fills <- if (is.null(gr$gp$fill)) rep(NA_character_, np) else rep_len(gr$gp$fill, np)
+            cols <- if (is.null(gr$gp$col)) rep(NA_character_, np) else rep_len(gr$gp$col, np)
+            lwds <- if (is.null(gr$gp$lwd)) rep(1, np) else rep_len(as.numeric(gr$gp$lwd), np)
+            ltys <- if (is.null(gr$gp$lty)) rep("solid", np) else rep_len(as.character(gr$gp$lty), np)
+            alphas <- if (is.null(gr$gp$alpha)) rep(1, np) else rep_len(as.numeric(gr$gp$alpha), np)
+            for (k in seq_len(np)) {
+              px <- convertX(p_list[[k]]$x, "npc", valueOnly = TRUE)
+              py <- convertY(p_list[[k]]$y, "npc", valueOnly = TRUE)
+              sel <- which(is.finite(px) & is.finite(py))
+              if (length(sel) < 2) next
+              cc <- conv_pts(px[sel], py[sel])
+              lt <- pg_lty(ltys[k])
+              blank <- lt == "blank" || is.na(lwds[k]) || lwds[k] <= 0
+              c1 <- if (blank) list(hex = "none", alpha = 0) else pg_col(cols[k])
+              f1 <- pg_col(fills[k])
+              a1 <- inh_alpha * (if (is.na(alphas[k])) 1 else alphas[k])
+              shapes[[length(shapes) + 1L]] <<- list(
+                kind = "xspline", paint_index = paint, filled = f1$hex != "none", is_rounded = TRUE,
+                facecolor_hex = f1$hex, face_alpha = round(f1$alpha * a1, 4),
+                edgecolor_hex = c1$hex, edge_alpha = round(c1$alpha * a1, 4),
+                linewidth_pt = if (c1$hex == "none" || is.na(lwds[k])) 0 else round(lwds[k] * 72 / 96, 4),
+                linetype = if (c1$hex == "none") "blank" else lt,
+                pieces = list(list(data = cc$data, norm = cc$norm))
+              )
+            }
+          }
         } else {
+          filled <- inherits(gr, "polygon") || inherits(gr, "pathgrob")
           xs <- convertX(gr$x, "npc", valueOnly = TRUE); ys <- convertY(gr$y, "npc", valueOnly = TRUE)
           id <- if (!is.null(gr$id)) gr$id else if (!is.null(gr$pathId)) gr$pathId else rep(1L, length(xs))
-          lty <- gr$gp$lty
-          lwd <- if (is.null(gr$gp$lwd)) 1 else if (is.na(gr$gp$lwd[1])) NA_real_ else as.numeric(gr$gp$lwd[1])
-          blank <- (!is.null(lty) && as.character(lty[1]) %in% c("0", "blank")) || (!is.na(lwd) && lwd <= 0)
-          c1 <- if (blank || is.null(gr$gp$col)) list(hex = "none", alpha = 0) else pg_col(gr$gp$col)
-          f1 <- if (filled) pg_col(gr$gp$fill) else list(hex = "none", alpha = 0)
-          pieces <- list()
-          is_r <- FALSE
-          for (pid in sort(unique(id[!is.na(id)]))) {
-            sel <- which(!is.na(id) & id == pid & is.finite(xs) & is.finite(ys))
-            if (length(sel) < 2 || (length(unique(xs[sel])) < 2 && length(unique(ys[sel])) < 2)) next
-            cc <- conv_pts(xs[sel], ys[sel])
-            if (filled && nrow(unique(round(cc$norm, 5))) > 6L) is_r <- TRUE
-            pieces[[length(pieces) + 1L]] <- list(data = cc$data, norm = cc$norm)
-          }
-          if (length(pieces)) {
-            shapes[[length(shapes) + 1L]] <<- list(
-              kind = if (filled) "polygon" else "polyline",
-              paint_index = paint, filled = filled, is_rounded = is_r,
-              facecolor_hex = f1$hex, face_alpha = round(f1$alpha * cur_a, 4),
-              edgecolor_hex = c1$hex, edge_alpha = round(c1$alpha * cur_a, 4),
-              linewidth_pt = if (c1$hex == "none" || is.na(lwd)) 0 else round(lwd * 72 / 96, 4),
-              pieces = pieces
-            )
+          pids <- sort(unique(id[!is.na(id)]))
+          np <- length(pids)
+          vec_gp <- np > 1L && (length(gr$gp$fill) > 1L || length(gr$gp$col) > 1L ||
+                                length(gr$gp$alpha) > 1L || length(gr$gp$lwd) > 1L || length(gr$gp$lty) > 1L)
+          if (vec_gp) {
+            fills <- if (!filled || is.null(gr$gp$fill)) rep(NA_character_, np) else rep_len(gr$gp$fill, np)
+            cols <- if (is.null(gr$gp$col)) rep(NA_character_, np) else rep_len(gr$gp$col, np)
+            lwds <- if (is.null(gr$gp$lwd)) rep(1, np) else rep_len(as.numeric(gr$gp$lwd), np)
+            ltys <- if (is.null(gr$gp$lty)) rep("solid", np) else rep_len(as.character(gr$gp$lty), np)
+            alphas <- if (is.null(gr$gp$alpha)) rep(1, np) else rep_len(as.numeric(gr$gp$alpha), np)
+            for (k in seq_len(np)) {
+              sel <- which(!is.na(id) & id == pids[k] & is.finite(xs) & is.finite(ys))
+              if (length(sel) < 2 || (length(unique(xs[sel])) < 2 && length(unique(ys[sel])) < 2)) next
+              cc <- conv_pts(xs[sel], ys[sel])
+              lt <- pg_lty(ltys[k])
+              blank <- lt == "blank" || is.na(lwds[k]) || lwds[k] <= 0
+              c1 <- if (blank) list(hex = "none", alpha = 0) else pg_col(cols[k])
+              f1 <- if (filled) pg_col(fills[k]) else list(hex = "none", alpha = 0)
+              a1 <- inh_alpha * (if (is.na(alphas[k])) 1 else alphas[k])
+              shapes[[length(shapes) + 1L]] <<- list(
+                kind = if (filled) "polygon" else "polyline",
+                paint_index = paint, filled = filled && f1$hex != "none",
+                is_rounded = filled && nrow(unique(round(cc$norm, 5))) > 6L,
+                facecolor_hex = f1$hex, face_alpha = round(f1$alpha * a1, 4),
+                edgecolor_hex = c1$hex, edge_alpha = round(c1$alpha * a1, 4),
+                linewidth_pt = if (c1$hex == "none" || is.na(lwds[k])) 0 else round(lwds[k] * 72 / 96, 4),
+                linetype = if (c1$hex == "none") "blank" else lt,
+                pieces = list(list(data = cc$data, norm = cc$norm))
+              )
+            }
+          } else {
+            lt <- pg_lty(gr$gp$lty)
+            lwd <- if (is.null(gr$gp$lwd)) 1 else if (is.na(gr$gp$lwd[1])) NA_real_ else as.numeric(gr$gp$lwd[1])
+            blank <- lt == "blank" || (!is.na(lwd) && lwd <= 0)
+            c1 <- if (blank || is.null(gr$gp$col)) list(hex = "none", alpha = 0) else pg_col(gr$gp$col)
+            f1 <- if (filled) pg_col(gr$gp$fill) else list(hex = "none", alpha = 0)
+            pieces <- list()
+            is_r <- FALSE
+            for (pid in pids) {
+              sel <- which(!is.na(id) & id == pid & is.finite(xs) & is.finite(ys))
+              if (length(sel) < 2 || (length(unique(xs[sel])) < 2 && length(unique(ys[sel])) < 2)) next
+              cc <- conv_pts(xs[sel], ys[sel])
+              if (filled && nrow(unique(round(cc$norm, 5))) > 6L) is_r <- TRUE
+              pieces[[length(pieces) + 1L]] <- list(data = cc$data, norm = cc$norm)
+            }
+            if (length(pieces)) {
+              shapes[[length(shapes) + 1L]] <<- list(
+                kind = if (filled) "polygon" else "polyline",
+                paint_index = paint, filled = filled, is_rounded = is_r,
+                facecolor_hex = f1$hex, face_alpha = round(f1$alpha * cur_a, 4),
+                edgecolor_hex = c1$hex, edge_alpha = round(c1$alpha * cur_a, 4),
+                linewidth_pt = if (c1$hex == "none" || is.na(lwd)) 0 else round(lwd * 72 / 96, 4),
+                linetype = if (c1$hex == "none") "blank" else lt,
+                pieces = pieces
+              )
+            }
           }
         }
       } else if ("rasters" %in% kinds && inherits(gr, "rastergrob")) {

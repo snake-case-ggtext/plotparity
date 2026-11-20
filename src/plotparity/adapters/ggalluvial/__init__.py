@@ -1,0 +1,1 @@
+"""ggalluvial adapter for plotparity."""

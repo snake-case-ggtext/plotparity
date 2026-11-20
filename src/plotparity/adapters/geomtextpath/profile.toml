@@ -1,0 +1,109 @@
+# geomtextpath adapter profile: curved text inventory, curve trajectory, per-glyph placement &
+# rotation/uprightness, line gap behind text, text/line/label-box styles.
+
+[checks.component_count]
+severity = "gating"
+tier = "inventory"
+
+[checks.missing_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_drawing]
+severity = "gating"
+tier = "inventory"
+
+[checks.extractor_blind]
+severity = "gating"
+tier = "inventory"
+
+[checks.curve_trajectory]
+severity = "gating"
+tier = "layout"
+tol = 6.0
+calibration = "symmetric pt deviation between candidate and R curve polylines in panel-local pt"
+
+[checks.glyph_position]
+severity = "gating"
+tier = "layout"
+tol = 10.0
+rel_tol = 0.22
+calibration = "mean per-glyph panel-local center distance (pt) and relative arc-length span error"
+
+[checks.glyph_angle]
+severity = "gating"
+tier = "layout"
+tol = 12.0
+calibration = "mean per-glyph tangent angle error (deg, mod 360) plus uprightness check"
+
+[checks.line_gap]
+severity = "gating"
+tier = "layout"
+tol = 6.0
+calibration = "line break presence behind text, continuity when gap=FALSE/vjust outside [0,1], and padding clearance (pt)"
+
+[checks.text_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 color; alpha abs; fontsize +/-1.2pt; weight & italic match"
+
+[checks.line_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 line color; alpha abs; linewidth +/-0.6pt; linetype match"
+
+[checks.label_box_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 box fill/edge color; alpha abs; presence & rounding"
+
+# generic text/frame core checks replaced by geomtextpath-specific checks above
+[checks.text_content]
+severity = "off"
+tier = "inventory"
+[checks.text_color]
+severity = "off"
+tier = "style"
+[checks.text_alpha]
+severity = "off"
+tier = "style"
+[checks.font_weight]
+severity = "off"
+tier = "style"
+[checks.font_style]
+severity = "off"
+tier = "style"
+[checks.font_size]
+severity = "off"
+tier = "style"
+[checks.text_visible]
+severity = "off"
+tier = "inventory"
+[checks.ink_present]
+severity = "off"
+tier = "inventory"
+[checks.rotation]
+severity = "off"
+tier = "layout"
+[checks.centroid]
+severity = "off"
+tier = "layout"
+[checks.fill_color]
+severity = "off"
+tier = "style"
+[checks.edge_color]
+severity = "off"
+tier = "style"
+[checks.shape_size]
+severity = "off"
+tier = "layout"

@@ -1,0 +1,120 @@
+# ggalluvial adapter profile: strata geometry, curved flow/alluvium trajectories,
+# stratum labels, vertical height conservation, and flow/stratum paint order.
+
+[checks.component_count]
+severity = "gating"
+tier = "inventory"
+calibration = "exact count of strata, flows/alluvia, and stratum labels"
+
+[checks.missing_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_component]
+severity = "gating"
+tier = "inventory"
+
+[checks.unexpected_drawing]
+severity = "gating"
+tier = "inventory"
+
+[checks.extractor_blind]
+severity = "gating"
+tier = "inventory"
+
+[checks.stratum_geometry]
+severity = "gating"
+tier = "layout"
+tol = 2.0
+calibration = "pt; axis center, width, and [v0, v1] bounds in panel points"
+
+[checks.stratum_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 for fill/edge; alpha absolute"
+
+[checks.flow_span]
+severity = "gating"
+tier = "layout"
+tol = 2.5
+calibration = "pt; flow/alluvium horizontal start and end edges"
+
+[checks.flow_trajectory]
+severity = "gating"
+tier = "layout"
+tol = 3.0
+calibration = "pt; max vertical error of top and bottom ribbon envelopes across 17 interior stations"
+
+[checks.flow_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 for fill/edge; alpha absolute"
+
+[checks.label_position]
+severity = "gating"
+tier = "layout"
+tol = 4.0
+calibration = "pt; label center vs R and containment inside stratum box"
+
+[checks.label_style]
+severity = "gating"
+tier = "style"
+tol = 6.0
+alpha_tol = 0.05
+calibration = "CIEDE2000 for text/box colours; alpha absolute; fontsize +/-1.5pt"
+
+[checks.height_conservation]
+severity = "gating"
+tier = "layout"
+tol = 2.0
+calibration = "pt; strata on each axis stack contiguously and match R total height"
+
+[checks.layer_order]
+severity = "gating"
+tier = "layout"
+calibration = "relative paint order between flows/alluvia and strata"
+
+# generic text and frame checks are superseded by the alluvial-specific checks above
+[checks.text_content]
+severity = "off"
+tier = "inventory"
+[checks.text_color]
+severity = "off"
+tier = "style"
+[checks.text_alpha]
+severity = "off"
+tier = "style"
+[checks.font_weight]
+severity = "off"
+tier = "style"
+[checks.font_style]
+severity = "off"
+tier = "style"
+[checks.font_size]
+severity = "off"
+tier = "style"
+[checks.text_visible]
+severity = "off"
+tier = "inventory"
+[checks.ink_present]
+severity = "off"
+tier = "inventory"
+[checks.rotation]
+severity = "off"
+tier = "layout"
+[checks.centroid]
+severity = "off"
+tier = "layout"
+[checks.fill_color]
+severity = "off"
+tier = "style"
+[checks.edge_color]
+severity = "off"
+tier = "style"
+[checks.shape_size]
+severity = "off"
+tier = "layout"

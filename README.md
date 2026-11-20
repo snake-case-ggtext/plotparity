@@ -126,12 +126,14 @@ Not checked yet:
 
 ## Other extensions
 
-Four adapters ship today:
+Six adapters ship today:
 
 - **ggtext**: rich-text labels and theme elements (`geom_richtext`, `geom_textbox`, `element_markdown`, `element_textbox`).
 - **ggridges**: ridgeline plots (each ridge's shape, density, fill, outline, pieces, and paint order).
 - **ggbeeswarm**: beeswarm and quasirandom dot distributions (per-group point counts, value axis fidelity, swarm center/spread/distribution, overlap, and point style across facets and `coord_flip()`).
 - **ggrepel**: force-directed repelled labels (inventory, label-label and dot-radius-aware label-point overlap invariants, panel containment, leader segment connectivity, and text/box style).
+- **ggalluvial**: alluvial and Sankey flow diagrams (stratum geometry, height conservation, spline/curve ribbon trajectories, flow/stratum paint order, and stratum labels across facets and `coord_flip()`).
+- **geomtextpath**: curved text along paths and smooths (per-glyph arc-length placement and tangent rotation, upright auto-flipping, line-gap breaking, curve trajectory, linetype, and curved/straight label boxes).
 
 Supporting another extension means writing an adapter (what counts as a component, how to find components on both sides, how to pair them, which checks apply): see [docs/writing-adapters.md](docs/writing-adapters.md).
 
