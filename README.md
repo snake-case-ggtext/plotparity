@@ -50,7 +50,7 @@ Cases plotparity can't measure yet (such as `<img>`) are compared by eye. **OK**
 | `--compare RUN` / `--no-compare` | mark findings new/fixed against a run (default: the last run of the same package and cases) |
 | `--no-render-r` | fail instead of rendering missing R references (for CI without R) |
 
-`plotparity view` reopens the latest report; `plotparity view RUN RUN` shows several runs side by side; `plotparity view --public --out site/report.html` writes a copy to publish, with paths under your home directory shown as `~`. `plotparity init` saves your defaults to a `parity.toml`.
+`plotparity view` reopens the latest report; `plotparity view RUN RUN` shows several runs side by side; `plotparity view --public --out site/report.html` writes a copy to publish, with paths under your home directory shown as `~`. `plotparity init` saves your defaults to a `parity.toml`; `plotparity inspect CASE` prints R's extracted components for a case; `plotparity calibrate` summarises check deltas across a run to help tune tolerances.
 
 ## Reading the results
 
@@ -104,7 +104,7 @@ ggplot(df, aes("x", "y", label="label")) + geom_richtext(hjust=0) + xlim(0, 1) +
 
 Point the agent at [skills/plotparity/SKILL.md](skills/plotparity/SKILL.md). It covers the run–fix loop, how to read findings, and the rules (edit only the package; never the cases, references, tolerances or `known_differences.toml`). Agents usually want `--no-html`.
 
-The agent never changes or suggests changes to the bar (tolerances, severities, known differences); it may report a finding it believes is the harness's fault, with evidence. Changing the bar is a human decision. This is enforced only under `plotparity loop`, which hashes the cases, settings and known differences and fails an iteration if they change; plain `plotparity run` doesn't check.
+The agent never changes or suggests changes to the bar (tolerances, severities, known differences); it may report a finding it believes is the harness's fault, with evidence. Changing the bar is a human decision. This is enforced only under `plotparity loop`, which hashes the cases, settings and known differences and fails an iteration if they change; plain `plotparity run` doesn't check. Set `clean_room = true` in `parity.toml` to remind agents not to read the R package's source code (docs, `ggplot_build()`, and rendered outputs only).
 
 ## What a pass means
 
@@ -126,13 +126,20 @@ Not checked yet:
 
 ## Other extensions
 
-Two adapters ship today: **ggtext** (rich-text labels and theme elements) and **ggridges** (ridgeline plots: each ridge's shape, density, fill, outline, pieces and which ridge is drawn on top). Supporting another extension means writing an adapter (what counts as a component, how to find components on both sides, how to pair them, which checks apply): see [docs/writing-adapters.md](docs/writing-adapters.md).
+Four adapters ship today:
+
+- **ggtext**: rich-text labels and theme elements (`geom_richtext`, `geom_textbox`, `element_markdown`, `element_textbox`).
+- **ggridges**: ridgeline plots (each ridge's shape, density, fill, outline, pieces, and paint order).
+- **ggbeeswarm**: beeswarm and quasirandom dot distributions (per-group point counts, value axis fidelity, swarm center/spread/distribution, overlap, and point style across facets and `coord_flip()`).
+- **ggrepel**: force-directed repelled labels (inventory, label-label and dot-radius-aware label-point overlap invariants, panel containment, leader segment connectivity, and text/box style).
+
+Supporting another extension means writing an adapter (what counts as a component, how to find components on both sides, how to pair them, which checks apply): see [docs/writing-adapters.md](docs/writing-adapters.md).
 
 ## Example
 
-**[See example reports](https://snake-case-ggtext.github.io/plotparity-examples/)** for three packages.
+**[See live example reports](https://snake-case-ggtext.github.io/plotparity-examples/)** for five packages, including multi-round clean-room port progressions for `plotnine-ggbeeswarm` and `plotnine-ggrepel`.
 
-[plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) has cases for ggtext and ggridges, and three packages tested against them: one that matches R and two with real gaps:
+[plotparity-examples](https://github.com/snake-case-ggtext/plotparity-examples) has cases for ggtext, ggridges, ggbeeswarm, and ggrepel, and five packages tested against them:
 
 ```bash
 git clone https://github.com/snake-case-ggtext/plotparity-examples

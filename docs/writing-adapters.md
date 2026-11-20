@@ -84,3 +84,8 @@ For geom extensions that work on panel points, polygons, lines, segments, or ras
 | Python side | probe draw calls + theme roles | `extract_panel_geometry(..., ("shapes",))` + built data | `extract_panel_geometry(..., ("points",))` | probe draw calls (labels/boxes/segments) + `extract_panel_geometry` points |
 | matching | position + words; chrome by role & order | by level | by `(panel, level)` | by `(panel, exact text)` |
 | whole-plot checks | | `paint_order` | | `label_no_overlap`, `label_no_point_overlap`, `segment_count` |
+
+### Lessons for collision & clearance checks
+
+- **Measure from physical ink edges, not mathematical centers.** A `geom_point()` dot is ~4 pt wide (radius ~2 pt), not a 0-pt pinhole. Checking `distance(point, box) == 0` lets labels sit right on top of a dot's ink while still scoring 0 overlaps; include `0.5 * size_pt` plus a small visual clearance margin (e.g. `1.0 pt`) and compare against R's own count so wall-pinned R cases don't false-positive.
+- **Inspect the HTML report by eye when calibrating a new adapter.** Structural checks catch exact regressions, and one visual pass over the side-by-side report quickly surfaces any blind spot in the invariants.
